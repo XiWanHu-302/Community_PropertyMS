@@ -3,8 +3,10 @@ package com.community.user.controller;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.community.common.Result;
 import com.community.user.entity.Household;
+import com.community.user.entity.Repair;
 import com.community.user.mapper.BuildingMapper;
 import com.community.user.mapper.HouseholdMapper;
+import com.community.user.mapper.RepairMapper;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -26,6 +28,9 @@ public class DashboardController {
     @Resource
     private BuildingMapper buildingMapper;
 
+    @Resource
+    private RepairMapper repairMapper;
+
     /**
      * 管理员首页统计数据
      * GET /dashboard/stats
@@ -38,7 +43,9 @@ public class DashboardController {
         data.put("buildingCount", buildingMapper.selectCount(null));
         // 停车位和维修数后续再接入
         data.put("parkingCount", 0);
-        data.put("pendingRepair", 0);
+        // 待维修工单数（实时统计）
+        data.put("pendingRepair", repairMapper.selectCount(
+                new LambdaQueryWrapper<Repair>().eq(Repair::getStatus, 0)));
         return Result.ok(data);
     }
 }
