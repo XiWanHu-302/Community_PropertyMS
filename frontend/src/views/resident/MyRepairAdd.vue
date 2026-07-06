@@ -10,6 +10,11 @@
         :type="lastRepair.status === 0 ? 'warning' : lastRepair.status === 1 ? 'success' : 'info'"
         :closable="false" show-icon style="margin:12px 0" />
 
+      <!-- 数据加载失败提示 -->
+      <el-empty v-if="loadError" description="数据加载失败，请确认后端服务已启动">
+        <el-button type="primary" @click="loadLastRepair">重试</el-button>
+      </el-empty>
+
       <el-form ref="formRef" :model="form" :rules="rules" label-width="80px" style="max-width:600px;margin-top:16px">
         <el-form-item label="报修类型">
           <el-select v-model="form.repairType" placeholder="请选择报修类型" style="width:100%">
@@ -68,6 +73,7 @@ const formRef = ref(null)
 const submitting = ref(false)
 const submitSuccess = ref(false)
 const hasHousehold = ref(true)
+const loadError = ref(false)
 const lastRepair = ref(null)
 
 const form = reactive({
@@ -129,13 +135,16 @@ const goToList = () => {
 
 // 加载最近一次报修
 const loadLastRepair = async () => {
+  loadError.value = false
   try {
     const res = await myRepairs({})
     const list = Array.isArray(res.data) ? res.data : []
     if (list.length > 0) {
       lastRepair.value = list[0]
     }
-  } catch { /* ignore */ }
+  } catch {
+    loadError.value = true
+  }
 }
 
 onMounted(() => {

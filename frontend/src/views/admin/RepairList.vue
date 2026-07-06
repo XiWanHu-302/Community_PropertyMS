@@ -50,8 +50,13 @@
         </el-col>
       </el-row>
 
+      <!-- 加载失败提示 -->
+      <el-empty v-if="loadError && !loading" description="数据加载失败，请确认后端服务已启动">
+        <el-button type="primary" @click="loadData">重新加载</el-button>
+      </el-empty>
+
       <!-- 工单表格 -->
-      <el-table :data="pagedData" border stripe v-loading="loading" style="margin-top:10px">
+      <el-table v-if="!loadError" :data="pagedData" border stripe v-loading="loading" style="margin-top:10px">
         <el-table-column prop="repairId" label="工单号" width="80" />
         <el-table-column prop="room" label="住号" width="100" />
         <el-table-column prop="ownerName" label="户主" width="90" />
@@ -143,6 +148,7 @@ import { ElMessage } from 'element-plus'
 import { listRepairs, getRepairStats, getStaffList, assignRepair, cancelRepair } from '../../api/repair'
 
 const loading = ref(false)
+const loadError = ref(false)
 const tableData = ref([])
 const staffList = ref([])
 const buildingOptions = ref(['28', '29', '30'])
@@ -248,6 +254,7 @@ const onSearchInput = () => {
 // 加载数据
 const loadData = async () => {
   loading.value = true
+  loadError.value = false
   try {
     const params = {}
     if (filterStatus.value !== null && filterStatus.value !== '') params.status = filterStatus.value
@@ -256,6 +263,7 @@ const loadData = async () => {
     currentPage.value = 1
   } catch {
     tableData.value = []
+    loadError.value = true
   } finally {
     loading.value = false
   }

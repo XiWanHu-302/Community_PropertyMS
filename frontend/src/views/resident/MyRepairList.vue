@@ -18,8 +18,13 @@
         </el-col>
       </el-row>
 
+      <!-- 加载失败提示 -->
+      <el-empty v-if="loadError && !loading" description="数据加载失败，请确认后端服务已启动">
+        <el-button type="primary" @click="loadData">重新加载</el-button>
+      </el-empty>
+
       <!-- 报修记录表格 -->
-      <el-table :data="pagedData" border stripe v-loading="loading" empty-text="暂无报修记录">
+      <el-table v-if="!loadError" :data="pagedData" border stripe v-loading="loading" empty-text="暂无报修记录">
         <el-table-column prop="repairId" label="工单号" width="80" />
         <el-table-column prop="content" label="维修内容" min-width="200" show-overflow-tooltip />
         <el-table-column prop="reportDate" label="报修日期" width="110" />
@@ -99,6 +104,7 @@ import { myRepairs, cancelRepair } from '../../api/repair'
 
 const router = useRouter()
 const loading = ref(false)
+const loadError = ref(false)
 const tableData = ref([])
 
 // 筛选
@@ -146,6 +152,7 @@ const goToAdd = () => {
 // 加载数据
 const loadData = async () => {
   loading.value = true
+  loadError.value = false
   try {
     const params = {}
     if (filterStatus.value !== null && filterStatus.value !== '') params.status = filterStatus.value
@@ -154,6 +161,7 @@ const loadData = async () => {
     currentPage.value = 1
   } catch {
     tableData.value = []
+    loadError.value = true
   } finally {
     loading.value = false
   }
