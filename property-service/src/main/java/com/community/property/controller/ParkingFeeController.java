@@ -82,7 +82,8 @@ public class ParkingFeeController {
     public Result<Map<String, Object>> summary(@RequestParam(required = false) Integer year,
                                                 @RequestParam(required = false) Integer month,
                                                 @RequestParam(defaultValue = "month") String period,
-                                                @RequestParam(required = false) Integer quarter) {
+                                                @RequestParam(required = false) Integer quarter,
+                                                @RequestParam(required = false) String statusFilter) {
         LocalDate today = LocalDate.now();
         if (year == null) year = today.getYear();
         if (month == null) month = today.getMonthValue();
@@ -120,6 +121,13 @@ public class ParkingFeeController {
                     break;
             }
             details.add(d);
+        }
+
+        // 按状态筛选（兼容旧版调用）
+        if (statusFilter != null && !statusFilter.isEmpty() && !"全部".equals(statusFilter)) {
+            details = details.stream()
+                    .filter(d -> statusFilter.equals(d.get("statusText")))
+                    .collect(Collectors.toList());
         }
 
         Map<String, Object> result = new HashMap<>();
@@ -165,6 +173,9 @@ public class ParkingFeeController {
         int worstStatus = 1;
         int monthCount = 0;
         boolean anyRecord = false;
+        // 单月模式下捕获缴费详情
+        String payDate = null, handler = null, billNo = null;
+        boolean singleMonth = (months.size() == 1);
 
         for (int[] ym : months) {
             int y = ym[0], m = ym[1];
@@ -182,6 +193,12 @@ public class ParkingFeeController {
             } else {
                 amt = fee.getAmount();
                 anyRecord = true;
+                // 单月模式：记录缴费详情
+                if (singleMonth && fee.getIsPaid() != null && fee.getIsPaid() == 1) {
+                    payDate = fee.getPayDate() != null ? fee.getPayDate().toString() : "";
+                    handler = fee.getHandler() != null ? fee.getHandler() : "";
+                    billNo = fee.getBillNo() != null ? fee.getBillNo() : "";
+                }
             }
             totalAmount = totalAmount.add(amt);
 
@@ -228,6 +245,9 @@ public class ParkingFeeController {
         d.put("collectedAmount", collectedAmount);
         d.put("statusText", statusText);
         d.put("monthCount", monthCount);
+        d.put("payDate", payDate);
+        d.put("handler", handler != null ? handler : "");
+        d.put("billNo", billNo != null ? billNo : "");
         return d;
     }
 
