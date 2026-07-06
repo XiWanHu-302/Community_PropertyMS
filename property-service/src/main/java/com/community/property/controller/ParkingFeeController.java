@@ -72,92 +72,62 @@ public class ParkingFeeController {
         return true;
     }
 
-    // ==================== 汇总统计 ====================
+    // ==================== 汇总统计报表（月/季度/年） ====================
 
+    /**
+     * 停车费汇总统计 —— 支持按月、按季度、按年
+     * GET /parking-fee/summary?year=&period=month|quarter|year&month=&quarter=
+     */
     @GetMapping("/summary")
     public Result<Map<String, Object>> summary(@RequestParam(required = false) Integer year,
                                                 @RequestParam(required = false) Integer month,
-                                                @RequestParam(required = false) String statusFilter) {
+                                                @RequestParam(defaultValue = "month") String period,
+                                                @RequestParam(required = false) Integer quarter) {
         LocalDate today = LocalDate.now();
         if (year == null) year = today.getYear();
         if (month == null) month = today.getMonthValue();
+        if (quarter == null) quarter = (today.getMonthValue() - 1) / 3 + 1;
 
-        // 先标记逾期，确保汇总统计基于最新状态
         markOverdue();
 
-        // 查所有车位（已租 + 空闲），历史缴费记录也要显示
         List<ParkingSpace> spaces = spaceMapper.selectList(null);
+        List<int[]> monthsToAggregate = buildMonthList(year, month, period, quarter);
+
         BigDecimal totalReceivable = BigDecimal.ZERO, totalCollected = BigDecimal.ZERO, totalOutstanding = BigDecimal.ZERO;
         int paidCount = 0, pendingCount = 0, overdueCount = 0;
         List<Map<String, Object>> details = new ArrayList<>();
 
         for (ParkingSpace s : spaces) {
-            // 先查DB：有记录就始终显示（可能来自前租户）
-            ParkingFee fee = feeMapper.selectOne(new LambdaQueryWrapper<ParkingFee>()
-                    .eq(ParkingFee::getSpaceNo, s.getSpaceNo())
-                    .eq(ParkingFee::getYear, year).eq(ParkingFee::getMonth, month));
-            // 无DB记录 +（空闲或无当前租户 或 未分配到该月）→ 跳过
-            if (fee == null && (s.getHouseholdId() == null || !isAssignedInMonth(s, year, month))) continue;
+            Map<String, Object> d = aggregateSpace(s, year, monthsToAggregate, today);
+            if (d == null) continue;
 
-            // 自动补建缺失记录（与 list() / 物业费 report() 行为一致）
-            BigDecimal amount;
-            if (fee == null) {
-                // 未来月份不自动创建记录，也不展示（除非已预缴，则 fee != null 不进入此分支）
-                if (year > today.getYear() || (year == today.getYear() && month > today.getMonthValue())) {
-                    continue;
-                }
-                amount = s.getMonthlyFee() != null ? s.getMonthlyFee() : BigDecimal.ZERO;
-                int initPaid = 0;
-                if (year < today.getYear() || (year == today.getYear() && month < today.getMonthValue())) {
-                    initPaid = -1;
-                } else if (year == today.getYear() && month == today.getMonthValue()
-                        && today.getDayOfMonth() > deadlineConfig.getDeadlineDay()) {
-                    initPaid = -1;
-                }
-                ParkingFee newFee = new ParkingFee();
-                newFee.setSpaceNo(s.getSpaceNo());
-                newFee.setHouseholdId(s.getHouseholdId());
-                newFee.setYear(year); newFee.setMonth(month);
-                newFee.setAmount(amount); newFee.setIsPaid(initPaid);
-                feeMapper.insert(newFee);
-                fee = newFee;
-            } else {
-                amount = fee.getAmount();
-            }
+            BigDecimal amount = (BigDecimal) d.get("amount");
+            String status = (String) d.get("statusText");
 
-            String status = statusText(fee, year, month, today, s.getAssignedDate());
             totalReceivable = totalReceivable.add(amount);
             switch (status) {
-                case "已缴": case "提前缴费": totalCollected = totalCollected.add(amount); paidCount++; break;
-                case "逾期": totalOutstanding = totalOutstanding.add(amount); overdueCount++; break;
-                case "待缴": case "历史记录": totalOutstanding = totalOutstanding.add(amount); pendingCount++; break;
+                case "已缴":
+                    totalCollected = totalCollected.add(amount); paidCount++; break;
+                case "逾期":
+                    totalOutstanding = totalOutstanding.add(amount); overdueCount++; break;
+                default:
+                    BigDecimal collected = (BigDecimal) d.getOrDefault("collectedAmount", BigDecimal.ZERO);
+                    totalCollected = totalCollected.add(collected);
+                    totalOutstanding = totalOutstanding.add(amount.subtract(collected));
+                    if (status.contains("逾期")) overdueCount++;
+                    else if (status.contains("待缴") || status.contains("历史")) pendingCount++;
+                    else paidCount++;
+                    break;
             }
-
-            // 查询户主信息：有DB记录用fee中的household_id（冻结的），否则用space当前的
-            String ownerName = "", room = "";
-            Integer lookupId = (fee != null) ? fee.getHouseholdId() : s.getHouseholdId();
-            if (lookupId != null) {
-                HouseholdDTO h = userFeignClient.getBriefById(lookupId);
-                if (h != null) { ownerName = h.getOwnerName(); room = h.getRoom(); }
-            }
-
-            Map<String, Object> d = new HashMap<>();
-            d.put("spaceNo", s.getSpaceNo()); d.put("plateNo", s.getPlateNo());
-            d.put("ownerName", ownerName); d.put("room", room);
-            d.put("amount", amount); d.put("statusText", status);
-            d.put("payDate", fee != null ? fee.getPayDate() : null);
-            d.put("handler", fee != null ? fee.getHandler() : "");
-            d.put("billNo", fee != null ? fee.getBillNo() : "");
             details.add(d);
         }
 
-        // 按状态筛选
-        if (statusFilter != null && !statusFilter.isEmpty() && !"全部".equals(statusFilter)) {
-            details = details.stream().filter(d -> statusFilter.equals(d.get("statusText"))).collect(Collectors.toList());
-        }
-
         Map<String, Object> result = new HashMap<>();
-        result.put("year", year); result.put("month", month);
+        result.put("year", year);
+        result.put("period", period);
+        if ("month".equals(period)) result.put("month", month);
+        if ("quarter".equals(period)) result.put("quarter", quarter);
+        result.put("monthCount", monthsToAggregate.size());
         result.put("totalSpaces", details.size());
         result.put("totalReceivable", totalReceivable);
         result.put("totalCollected", totalCollected);
@@ -167,6 +137,98 @@ public class ParkingFeeController {
         result.put("overdueCount", overdueCount);
         result.put("details", details);
         return Result.ok(result);
+    }
+
+    /** 构建汇总月份列表 */
+    private List<int[]> buildMonthList(int year, int month, String period, int quarter) {
+        List<int[]> list = new ArrayList<>();
+        switch (period) {
+            case "year":
+                for (int m = 1; m <= 12; m++) list.add(new int[]{year, m});
+                break;
+            case "quarter":
+                int startMonth = (quarter - 1) * 3 + 1;
+                for (int m = startMonth; m < startMonth + 3; m++) list.add(new int[]{year, m});
+                break;
+            default:
+                list.add(new int[]{year, month});
+                break;
+        }
+        return list;
+    }
+
+    /** 按车位汇总：对月份列表中的所有月聚合金额和状态 */
+    private Map<String, Object> aggregateSpace(ParkingSpace s, int year,
+                                                List<int[]> months, LocalDate today) {
+        BigDecimal totalAmount = BigDecimal.ZERO;
+        BigDecimal collectedAmount = BigDecimal.ZERO;
+        int worstStatus = 1;
+        int monthCount = 0;
+        boolean anyRecord = false;
+
+        for (int[] ym : months) {
+            int y = ym[0], m = ym[1];
+            if (!isAssignedInMonth(s, y, m)) continue;
+            if (y > today.getYear() || (y == today.getYear() && m > today.getMonthValue())) continue;
+            monthCount++;
+
+            ParkingFee fee = feeMapper.selectOne(new LambdaQueryWrapper<ParkingFee>()
+                    .eq(ParkingFee::getSpaceNo, s.getSpaceNo())
+                    .eq(ParkingFee::getYear, y).eq(ParkingFee::getMonth, m));
+
+            BigDecimal amt;
+            if (fee == null) {
+                amt = s.getMonthlyFee() != null ? s.getMonthlyFee() : BigDecimal.ZERO;
+            } else {
+                amt = fee.getAmount();
+                anyRecord = true;
+            }
+            totalAmount = totalAmount.add(amt);
+
+            String status = statusText(fee, y, m, today, s.getAssignedDate());
+            if (status.equals("已缴") || status.equals("提前缴费")) {
+                collectedAmount = collectedAmount.add(amt);
+            } else if (status.equals("逾期")) {
+                worstStatus = Math.max(worstStatus, 3); anyRecord = true;
+            } else {
+                worstStatus = Math.max(worstStatus, 2); anyRecord = true;
+            }
+        }
+
+        if (monthCount == 0 && !anyRecord) return null;
+
+        String statusText;
+        if (monthCount == 0) {
+            statusText = "无记录";
+        } else if (worstStatus == 1) {
+            statusText = "已缴";
+        } else if (worstStatus == 3 && collectedAmount.compareTo(BigDecimal.ZERO) > 0) {
+            statusText = "部分逾期";
+        } else if (worstStatus == 3) {
+            statusText = "逾期";
+        } else if (worstStatus == 2 && collectedAmount.compareTo(BigDecimal.ZERO) > 0) {
+            statusText = "部分待缴";
+        } else {
+            statusText = "待缴";
+        }
+
+        String ownerName = "", room = "";
+        Integer lookupId = s.getHouseholdId();
+        if (lookupId != null) {
+            HouseholdDTO h = userFeignClient.getBriefById(lookupId);
+            if (h != null) { ownerName = h.getOwnerName(); room = h.getRoom(); }
+        }
+
+        Map<String, Object> d = new HashMap<>();
+        d.put("spaceNo", s.getSpaceNo());
+        d.put("plateNo", s.getPlateNo() != null ? s.getPlateNo() : "");
+        d.put("ownerName", ownerName);
+        d.put("room", room);
+        d.put("amount", totalAmount);
+        d.put("collectedAmount", collectedAmount);
+        d.put("statusText", statusText);
+        d.put("monthCount", monthCount);
+        return d;
     }
 
     // ==================== 催缴提醒（全局） ====================
