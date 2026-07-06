@@ -223,7 +223,7 @@ const feeSummary = reactive({ totalSpaces:0, paidCount:0, pendingCount:0, overdu
 const loadFeeSummary = async () => {
   feeLoading.value = true
   try {
-    const res = await request2.get(`/parking-fee/summary?year=${feeYear.value}&month=${feeMonth.value}&statusFilter=${feeStatusFilter.value}`)
+    const res = await request2.get(`/parking-fee/report?year=${feeYear.value}&month=${feeMonth.value}&statusFilter=${feeStatusFilter.value}`)
     Object.assign(feeSummary, res.data)
   } catch(e) { Object.assign(feeSummary, { totalSpaces:0, paidCount:0, pendingCount:0, overdueCount:0, totalReceivable:0, totalCollected:0, totalOutstanding:0, details:[] }) }
   finally { feeLoading.value = false }

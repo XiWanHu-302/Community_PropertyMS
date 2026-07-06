@@ -72,6 +72,86 @@ public class ParkingFeeController {
         return true;
     }
 
+    // ==================== 停车费管理报表（按年月简单读表） ====================
+
+    /**
+     * 停车费管理报表 — 按年月直接查 parking_fee 表，不自动补建、不聚合
+     * GET /parking-fee/report?year=&month=&statusFilter=
+     */
+    @GetMapping("/report")
+    public Result<Map<String, Object>> report(@RequestParam(required = false) Integer year,
+                                               @RequestParam(required = false) Integer month,
+                                               @RequestParam(required = false) String statusFilter) {
+        LocalDate today = LocalDate.now();
+        if (year == null) year = today.getYear();
+        if (month == null) month = today.getMonthValue();
+
+        markOverdue();
+
+        // 直接查 parking_fee 表，不做自动补建
+        List<ParkingFee> fees = feeMapper.selectList(new LambdaQueryWrapper<ParkingFee>()
+                .eq(ParkingFee::getYear, year)
+                .eq(ParkingFee::getMonth, month)
+                .orderByAsc(ParkingFee::getSpaceNo));
+
+        BigDecimal totalReceivable = BigDecimal.ZERO, totalCollected = BigDecimal.ZERO, totalOutstanding = BigDecimal.ZERO;
+        int paidCount = 0, pendingCount = 0, overdueCount = 0;
+        List<Map<String, Object>> details = new ArrayList<>();
+
+        for (ParkingFee f : fees) {
+            ParkingSpace s = spaceMapper.selectById(f.getSpaceNo());
+            if (s == null) continue;
+
+            String status = statusText(f, year, month, today, s.getAssignedDate());
+            BigDecimal amount = f.getAmount() != null ? f.getAmount() : BigDecimal.ZERO;
+
+            totalReceivable = totalReceivable.add(amount);
+            switch (status) {
+                case "已缴": case "提前缴费":
+                    totalCollected = totalCollected.add(amount); paidCount++; break;
+                case "逾期":
+                    totalOutstanding = totalOutstanding.add(amount); overdueCount++; break;
+                default:
+                    totalOutstanding = totalOutstanding.add(amount); pendingCount++; break;
+            }
+
+            String ownerName = "", room = "";
+            Integer lookupId = f.getHouseholdId();
+            if (lookupId != null) {
+                HouseholdDTO h = userFeignClient.getBriefById(lookupId);
+                if (h != null) { ownerName = h.getOwnerName(); room = h.getRoom(); }
+            }
+
+            Map<String, Object> d = new HashMap<>();
+            d.put("spaceNo", f.getSpaceNo());
+            d.put("plateNo", s.getPlateNo() != null ? s.getPlateNo() : "");
+            d.put("ownerName", ownerName); d.put("room", room);
+            d.put("amount", amount); d.put("statusText", status);
+            d.put("payDate", f.getPayDate()); d.put("handler", f.getHandler() != null ? f.getHandler() : "");
+            d.put("billNo", f.getBillNo() != null ? f.getBillNo() : "");
+            details.add(d);
+        }
+
+        // 按状态筛选
+        if (statusFilter != null && !statusFilter.isEmpty() && !"全部".equals(statusFilter)) {
+            details = details.stream()
+                    .filter(d -> statusFilter.equals(d.get("statusText")))
+                    .collect(Collectors.toList());
+        }
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("year", year); result.put("month", month);
+        result.put("totalSpaces", details.size());
+        result.put("totalReceivable", totalReceivable);
+        result.put("totalCollected", totalCollected);
+        result.put("totalOutstanding", totalOutstanding);
+        result.put("paidCount", paidCount);
+        result.put("pendingCount", pendingCount);
+        result.put("overdueCount", overdueCount);
+        result.put("details", details);
+        return Result.ok(result);
+    }
+
     // ==================== 汇总统计报表（月/季度/年） ====================
 
     /**
