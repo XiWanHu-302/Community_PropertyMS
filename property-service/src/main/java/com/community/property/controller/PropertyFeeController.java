@@ -241,32 +241,9 @@ public class PropertyFeeController {
                         .eq(PropertyFee::getHouseholdId, h.getHouseholdId())
                         .eq(PropertyFee::getYear, year).eq(PropertyFee::getMonth, month));
 
-                // 自动补建缺失记录（与 list() 行为一致，确保管理员查看也能落地数据，而非仅在内存中虚拟计算）
-                BigDecimal amount;
-                if (fee == null) {
-                    // 未来月份不自动创建记录，也不展示（除非住户已预缴，则 fee != null 不进入此分支）
-                    if (year > today.getYear() || (year == today.getYear() && month > today.getMonthValue())) {
-                        continue;
-                    }
-                    amount = (h.getArea() != null && h.getPropertyFeeRate() != null)
-                            ? h.getArea().multiply(h.getPropertyFeeRate()) : BigDecimal.ZERO;
-                    int initPaid = 0;
-                    // 历史月份 → 逾期；当前月根据截止日判定
-                    if (year < today.getYear() || (year == today.getYear() && month < today.getMonthValue())) {
-                        initPaid = -1;
-                    } else if (year == today.getYear() && month == today.getMonthValue()
-                            && today.getDayOfMonth() > deadlineConfig.getDeadlineDay()) {
-                        initPaid = -1;
-                    }
-                    PropertyFee newFee = new PropertyFee();
-                    newFee.setHouseholdId(h.getHouseholdId());
-                    newFee.setYear(year); newFee.setMonth(month);
-                    newFee.setAmount(amount); newFee.setIsPaid(initPaid);
-                    feeMapper.insert(newFee);
-                    fee = newFee;
-                } else {
-                    amount = fee.getAmount();
-                }
+                // 无记录则跳过（数据库有什么就显示什么）
+                if (fee == null) continue;
+                BigDecimal amount = fee.getAmount();
 
                 String status = statusText(fee.getIsPaid(), year, month, today);
 
@@ -538,24 +515,11 @@ public class PropertyFeeController {
                     .eq(PropertyFee::getHouseholdId, h.getHouseholdId())
                     .eq(PropertyFee::getYear, y).eq(PropertyFee::getMonth, m));
 
-            BigDecimal amt;
-            int isPaid;
-            if (fee == null) {
-                amt = (h.getArea() != null && h.getPropertyFeeRate() != null)
-                        ? h.getArea().multiply(h.getPropertyFeeRate()) : BigDecimal.ZERO;
-                // 历史月份默认逾期，当前月根据截止日判断
-                if (y < today.getYear() || (y == today.getYear() && m < today.getMonthValue())) {
-                    isPaid = -1;
-                } else if (y == today.getYear() && m == today.getMonthValue()
-                        && today.getDayOfMonth() > deadlineConfig.getDeadlineDay()) {
-                    isPaid = -1;
-                } else {
-                    isPaid = 0;
-                }
-            } else {
-                amt = fee.getAmount();
-                isPaid = fee.getIsPaid() != null ? fee.getIsPaid() : 0;
-            }
+            // 无记录则跳过该月，不虚拟计算金额和状态
+            if (fee == null) continue;
+
+            BigDecimal amt = fee.getAmount();
+            int isPaid = fee.getIsPaid() != null ? fee.getIsPaid() : 0;
             totalAmount = totalAmount.add(amt);
 
             if (isPaid == 1) {
@@ -608,24 +572,7 @@ public class PropertyFeeController {
         int curYear = today.getYear(), curMonth = today.getMonthValue();
         int deadlineDay = deadlineConfig.getDeadlineDay();
 
-        // 2. 自动补当月记录（始终补，截止日影响 is_paid 初值）
-        PropertyFee curFee = feeMapper.selectOne(new LambdaQueryWrapper<PropertyFee>()
-                .eq(PropertyFee::getHouseholdId, householdId)
-                .eq(PropertyFee::getYear, curYear).eq(PropertyFee::getMonth, curMonth));
-        if (curFee == null) {
-            HouseholdDTO h = userFeignClient.getBriefById(householdId);
-            if (h != null) {
-                BigDecimal amount = h.getArea() != null && h.getPropertyFeeRate() != null
-                        ? h.getArea().multiply(h.getPropertyFeeRate()) : BigDecimal.ZERO;
-                int initPaid = today.getDayOfMonth() <= deadlineDay ? 0 : -1;
-                PropertyFee newFee = new PropertyFee();
-                newFee.setHouseholdId(householdId); newFee.setYear(curYear); newFee.setMonth(curMonth);
-                newFee.setAmount(amount); newFee.setIsPaid(initPaid);
-                feeMapper.insert(newFee);
-            }
-        }
-
-        // 3. 查询（过滤未来月：只返回已缴费的）
+        // 2. 查询（数据库有什么就显示什么，不自动创建记录）
         LambdaQueryWrapper<PropertyFee> w = new LambdaQueryWrapper<PropertyFee>()
                 .eq(PropertyFee::getHouseholdId, householdId)
                 .orderByAsc(PropertyFee::getYear).orderByAsc(PropertyFee::getMonth);
