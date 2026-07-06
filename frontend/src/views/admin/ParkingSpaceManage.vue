@@ -27,7 +27,6 @@
                 <el-button size="small" @click="openEdit(row)">编辑</el-button>
                 <el-button v-if="row.status===1" size="small" type="warning" @click="handleRelease(row)">释放</el-button>
                 <el-button v-else size="small" type="success" @click="openAssign(row)">分配</el-button>
-                <el-button size="small" @click="viewHistory(row)">历史</el-button>
                 <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
               </template>
             </el-table-column>
@@ -148,17 +147,6 @@
       </template>
     </el-dialog>
 
-    <!-- ========== 历史记录弹窗 ========== -->
-    <el-dialog v-model="historyVisible" :title="'租用历史 — ' + historySpaceNo" width="750px">
-      <el-table :data="historyList" border stripe v-loading="historyLoading" empty-text="暂无租用记录">
-        <el-table-column prop="ownerName" label="户主" width="90" />
-        <el-table-column prop="room" label="房号" width="120" />
-        <el-table-column prop="plateNo" label="车牌号" width="120" />
-        <el-table-column prop="monthlyFee" label="月费(元)" width="100" />
-        <el-table-column prop="assignedDate" label="租用日期" width="110" />
-        <el-table-column prop="releasedDate" label="释放日期" width="110" />
-      </el-table>
-    </el-dialog>
   </div>
 </template>
 
@@ -223,18 +211,6 @@ const handleRelease = async (row) => {
 const handleDelete = async (row) => {
   await ElMessageBox.confirm('确定删除车位 '+row.spaceNo+' 吗？','确认',{type:'warning'})
   await request2.delete(`/parking-space/${row.spaceNo}`); ElMessage.success('已删除'); loadSpaces()
-}
-
-const historyVisible = ref(false), historySpaceNo = ref('')
-const historyList = ref([]), historyLoading = ref(false)
-const viewHistory = async (row) => {
-  historySpaceNo.value = row.spaceNo
-  historyVisible.value = true
-  historyLoading.value = true
-  try {
-    historyList.value = (await request2.get(`/parking-space/${row.spaceNo}/history`)).data || []
-  } catch(e) { historyList.value = [] }
-  finally { historyLoading.value = false }
 }
 
 // ==================== 停车费管理 ====================

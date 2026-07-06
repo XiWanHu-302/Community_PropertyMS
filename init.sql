@@ -162,26 +162,7 @@ CREATE TABLE parking_fee (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='停车费缴费记录表';
 
 -- --------------------------------------
--- 2.7 车位租用历史记录表（释放时自动写入）
--- --------------------------------------
-CREATE TABLE parking_space_history (
-  id            INT            AUTO_INCREMENT,
-  space_no      VARCHAR(20)    NOT NULL,
-  household_id  INT            NOT NULL,
-  plate_no      VARCHAR(20)   ,
-  owner_name    VARCHAR(50)   ,           -- 冻结户主姓名（释放时快照）
-  room          VARCHAR(20)   ,           -- 冻结房号
-  monthly_fee   DECIMAL(10,2)  NOT NULL,
-  assigned_date DATE           NOT NULL,  -- 租用开始日期
-  released_date DATE           NOT NULL,  -- 释放日期
-  PRIMARY KEY (id),
-  KEY idx_psh_space (space_no),
-  CONSTRAINT fk_psh_space FOREIGN KEY (space_no)
-    REFERENCES parking_space(space_no) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='车位租用历史记录';
-
--- --------------------------------------
--- 2.8 维修信息表
+-- 2.7 维修信息表
 -- --------------------------------------
 CREATE TABLE repair (
   repair_id     INT            AUTO_INCREMENT,

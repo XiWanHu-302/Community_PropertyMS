@@ -6,10 +6,8 @@ import com.community.common.Result;
 import com.community.common.dto.HouseholdDTO;
 import com.community.property.entity.ParkingFee;
 import com.community.property.entity.ParkingSpace;
-import com.community.property.entity.ParkingSpaceHistory;
 import com.community.property.feign.UserServiceFeignClient;
 import com.community.property.mapper.ParkingFeeMapper;
-import com.community.property.mapper.ParkingSpaceHistoryMapper;
 import com.community.property.mapper.ParkingSpaceMapper;
 import com.community.property.config.DeadlineConfig;
 import com.community.property.security.JwtUtil;
@@ -31,9 +29,8 @@ import java.util.stream.Collectors;
 public class ParkingSpaceController {
 
     @Resource private ParkingSpaceMapper spaceMapper;
-    @Resource private ParkingFeeMapper feeMapper;             // 停车费查询（释放/删除时检查未缴费用）
-    @Resource private ParkingSpaceHistoryMapper historyMapper; // 历史记录（释放时写入）
-    @Resource private UserServiceFeignClient userFeignClient;   // OpenFeign 跨服务调用
+    @Resource private ParkingFeeMapper feeMapper;
+    @Resource private UserServiceFeignClient userFeignClient;
     @Resource private JwtUtil jwtUtil;                          // JWT 工具（解析 refId/role）
     @Resource private HttpServletRequest request;               // 获取请求头中的 Token
     @Resource private DeadlineConfig deadlineConfig;            // 截止日配置
@@ -237,21 +234,6 @@ public class ParkingSpaceController {
             return Result.fail("该车位存在未缴停车费（" + months + "），共 ¥" + total + "，请先完成缴费再进行释放");
         }
 
-        // 3. 将当前租用信息写入历史记录（释放前快照）
-        ParkingSpaceHistory hist = new ParkingSpaceHistory();
-        hist.setSpaceNo(spaceNo);
-        hist.setHouseholdId(s.getHouseholdId());
-        hist.setPlateNo(s.getPlateNo());
-        hist.setMonthlyFee(s.getMonthlyFee());
-        hist.setAssignedDate(s.getAssignedDate() != null ? s.getAssignedDate() : LocalDate.now());
-        hist.setReleasedDate(LocalDate.now());
-        // 通过 OpenFeign 快照户主姓名和房号
-        try {
-            HouseholdDTO h = userFeignClient.getBriefById(s.getHouseholdId());
-            if (h != null) { hist.setOwnerName(h.getOwnerName()); hist.setRoom(h.getRoom()); }
-        } catch (Exception ignored) {}
-        historyMapper.insert(hist);
-
         // 3. 清空车位分配信息
         UpdateWrapper<ParkingSpace> uw = new UpdateWrapper<>();
         uw.eq("space_no", spaceNo)
@@ -261,16 +243,5 @@ public class ParkingSpaceController {
           .set("assigned_date", null);
         spaceMapper.update(null, uw);
         return Result.ok("已释放");
-    }
-
-    /** 查询车位租用历史记录 */
-    @GetMapping("/{spaceNo}/history")
-    @PreAuthorize("hasAnyRole('ADMIN','RESIDENT')")
-    public Result<List<ParkingSpaceHistory>> history(@PathVariable String spaceNo) {
-        List<ParkingSpaceHistory> list = historyMapper.selectList(
-                new LambdaQueryWrapper<ParkingSpaceHistory>()
-                        .eq(ParkingSpaceHistory::getSpaceNo, spaceNo)
-                        .orderByDesc(ParkingSpaceHistory::getReleasedDate));
-        return Result.ok(list);
     }
 }
