@@ -77,7 +77,10 @@
         <el-form-item label="维修人">{{ detail.repairPerson || '—' }}</el-form-item>
         <el-form-item label="维修日期">{{ detail.repairDate || '—' }}</el-form-item>
         <el-form-item label="维修金额">{{ detail.amount ? '¥' + detail.amount : '—' }}</el-form-item>
-        <el-form-item label="基金支出">{{ detail.isFromFund === 1 ? '是' : '否' }}</el-form-item>
+        <el-form-item label="基金支出">
+          <template v-if="detail.status === 1">{{ detail.isFromFund === 1 ? '是' : '否' }}</template>
+          <template v-else>—</template>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="detailVisible = false">关闭</el-button>

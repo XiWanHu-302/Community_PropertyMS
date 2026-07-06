@@ -41,7 +41,7 @@
         </el-table-column>
         <el-table-column label="金额" width="100">
           <template #default="{row}">
-            <span v-if="row.amount && row.amount > 0">
+            <span v-if="row.amount && row.amount > 0 && row.status === 1">
               ¥{{ row.amount }}
               <el-tag v-if="row.isFromFund === 1" size="small" type="warning" style="margin-left:4px">基金</el-tag>
             </span>
@@ -87,7 +87,10 @@
           <span v-if="detail.amount && detail.amount > 0">¥{{ detail.amount }}</span>
           <span v-else>—</span>
         </el-form-item>
-        <el-form-item label="基金支出">{{ detail.isFromFund === 1 ? '是（已从维修基金扣减）' : '否（自费）' }}</el-form-item>
+        <el-form-item label="基金支出">
+          <template v-if="detail.status === 1">{{ detail.isFromFund === 1 ? '是（已从维修基金扣减）' : '否（自费）' }}</template>
+          <template v-else>—</template>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="detailVisible = false">关闭</el-button>
