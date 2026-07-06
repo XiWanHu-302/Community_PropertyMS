@@ -420,95 +420,73 @@ public class PropertyFeeController {
         return Result.ok(list);
     }
 
-    // ==================== 汇总统计报表 ====================
+    // ==================== 汇总统计报表（月/季度/年） ====================
 
+    /**
+     * 汇总统计报表 —— 支持按月、按季度、按年
+     * GET /property-fee/summary?year=&period=month|quarter|year&month=&quarter=
+     */
     @GetMapping("/summary")
     public Result<Map<String, Object>> summary(@RequestParam(required = false) Integer year,
-                                                @RequestParam(required = false) Integer month) {
+                                                @RequestParam(required = false) Integer month,
+                                                @RequestParam(defaultValue = "month") String period,
+                                                @RequestParam(required = false) Integer quarter) {
         LocalDate today = LocalDate.now();
         if (year == null) year = today.getYear();
         if (month == null) month = today.getMonthValue();
+        if (quarter == null) quarter = (today.getMonthValue() - 1) / 3 + 1;
 
-        // 先标记逾期，确保汇总统计基于最新状态
+        // 先标记逾期
         markOverdue();
 
-        // 含已搬离住户（isActiveInMonth 会按入住/搬离日期过滤）
+        // 含已搬离住户
         List<HouseholdDTO> households = userFeignClient.getAllHouseholds();
 
+        // 确定要统计的月份列表
+        List<int[]> monthsToAggregate = buildMonthList(year, month, period, quarter, today);
+
+        // 按户汇总
         BigDecimal totalReceivable = BigDecimal.ZERO;
         BigDecimal totalCollected = BigDecimal.ZERO;
         BigDecimal totalOutstanding = BigDecimal.ZERO;
         int paidCount = 0, pendingCount = 0, overdueCount = 0;
-
         List<Map<String, Object>> details = new ArrayList<>();
 
         if (households != null) {
             for (HouseholdDTO h : households) {
-                // 该月不在住的跳过
-                if (!isActiveInMonth(h, year, month)) continue;
+                Map<String, Object> d = aggregateHousehold(h, year, monthsToAggregate, today);
+                if (d == null) continue; // 该时段内不在住，跳过
 
-                PropertyFee fee = feeMapper.selectOne(new LambdaQueryWrapper<PropertyFee>()
-                        .eq(PropertyFee::getHouseholdId, h.getHouseholdId())
-                        .eq(PropertyFee::getYear, year).eq(PropertyFee::getMonth, month));
-
-                // 自动补建缺失记录（与 list() 行为一致，确保管理员查看也能落地数据）
-                BigDecimal amount;
-                if (fee == null) {
-                    // 未来月份不自动创建记录，也不展示（除非住户已预缴，则 fee != null 不进入此分支）
-                    if (year > today.getYear() || (year == today.getYear() && month > today.getMonthValue())) {
-                        continue;
-                    }
-                    amount = (h.getArea() != null && h.getPropertyFeeRate() != null)
-                            ? h.getArea().multiply(h.getPropertyFeeRate()) : BigDecimal.ZERO;
-                    int initPaid = 0;
-                    if (year < today.getYear() || (year == today.getYear() && month < today.getMonthValue())) {
-                        initPaid = -1;
-                    } else if (year == today.getYear() && month == today.getMonthValue()
-                            && today.getDayOfMonth() > deadlineConfig.getDeadlineDay()) {
-                        initPaid = -1;
-                    }
-                    PropertyFee newFee = new PropertyFee();
-                    newFee.setHouseholdId(h.getHouseholdId());
-                    newFee.setYear(year); newFee.setMonth(month);
-                    newFee.setAmount(amount); newFee.setIsPaid(initPaid);
-                    feeMapper.insert(newFee);
-                    fee = newFee;
-                } else {
-                    amount = fee.getAmount();
-                }
-
-                String status = statusText(fee.getIsPaid(), year, month, today);
+                BigDecimal amount = (BigDecimal) d.get("amount");
+                String status = (String) d.get("statusText");
 
                 totalReceivable = totalReceivable.add(amount);
                 switch (status) {
-                    case "已缴": case "提前缴费":
-                        totalCollected = totalCollected.add(amount);
-                        paidCount++;
-                        break;
+                    case "已缴":
+                        totalCollected = totalCollected.add(amount); paidCount++; break;
                     case "逾期":
-                        totalOutstanding = totalOutstanding.add(amount);
-                        overdueCount++;
-                        break;
-                    case "待缴":
-                        totalOutstanding = totalOutstanding.add(amount);
-                        pendingCount++;
+                        totalOutstanding = totalOutstanding.add(amount); overdueCount++; break;
+                    default: // 待缴 / 部分已缴 / 部分逾期
+                        // 拆分：已缴部分加到实收，未缴部分加到未收
+                        BigDecimal collected = (BigDecimal) d.getOrDefault("collectedAmount", BigDecimal.ZERO);
+                        totalCollected = totalCollected.add(collected);
+                        totalOutstanding = totalOutstanding.add(amount.subtract(collected));
+                        // 按最差状态计数
+                        if (status.contains("逾期")) overdueCount++;
+                        else if (status.contains("待缴")) pendingCount++;
+                        else paidCount++;
                         break;
                 }
-
-                Map<String, Object> d = new HashMap<>();
-                d.put("householdId", h.getHouseholdId());
-                d.put("room", h.getRoom());
-                d.put("ownerName", h.getOwnerName());
-                d.put("amount", amount);
-                d.put("statusText", status);
                 details.add(d);
             }
         }
 
         Map<String, Object> result = new HashMap<>();
         result.put("year", year);
-        result.put("month", month);
-        result.put("totalHouseholds", households != null ? households.size() : 0);
+        result.put("period", period);
+        if ("month".equals(period)) result.put("month", month);
+        if ("quarter".equals(period)) result.put("quarter", quarter);
+        result.put("monthCount", monthsToAggregate.size());
         result.put("totalReceivable", totalReceivable);
         result.put("totalCollected", totalCollected);
         result.put("totalOutstanding", totalOutstanding);
@@ -517,6 +495,105 @@ public class PropertyFeeController {
         result.put("overdueCount", overdueCount);
         result.put("details", details);
         return Result.ok(result);
+    }
+
+    /** 构建要汇总的月份列表 */
+    private List<int[]> buildMonthList(int year, int month, String period, int quarter, LocalDate today) {
+        List<int[]> list = new ArrayList<>();
+        switch (period) {
+            case "year":
+                for (int m = 1; m <= 12; m++) list.add(new int[]{year, m});
+                break;
+            case "quarter":
+                int startMonth = (quarter - 1) * 3 + 1;
+                for (int m = startMonth; m < startMonth + 3; m++) list.add(new int[]{year, m});
+                break;
+            default: // month
+                list.add(new int[]{year, month});
+                break;
+        }
+        return list;
+    }
+
+    /** 按户汇总：对月份列表中的所有月聚合金额和状态 */
+    private Map<String, Object> aggregateHousehold(HouseholdDTO h, int year,
+                                                     List<int[]> months, LocalDate today) {
+        BigDecimal totalAmount = BigDecimal.ZERO;
+        BigDecimal collectedAmount = BigDecimal.ZERO;
+        // 状态优先级: 已缴(1) < 待缴(2) < 逾期(3)
+        int worstStatus = 1;
+        int monthCount = 0;
+        boolean anyActive = false;
+
+        for (int[] ym : months) {
+            int y = ym[0], m = ym[1];
+            if (!isActiveInMonth(h, y, m)) continue;
+            anyActive = true;
+
+            // 未来月份跳过（不展示也无记录）
+            if (y > today.getYear() || (y == today.getYear() && m > today.getMonthValue())) continue;
+
+            monthCount++;
+            PropertyFee fee = feeMapper.selectOne(new LambdaQueryWrapper<PropertyFee>()
+                    .eq(PropertyFee::getHouseholdId, h.getHouseholdId())
+                    .eq(PropertyFee::getYear, y).eq(PropertyFee::getMonth, m));
+
+            BigDecimal amt;
+            int isPaid;
+            if (fee == null) {
+                amt = (h.getArea() != null && h.getPropertyFeeRate() != null)
+                        ? h.getArea().multiply(h.getPropertyFeeRate()) : BigDecimal.ZERO;
+                // 历史月份默认逾期，当前月根据截止日判断
+                if (y < today.getYear() || (y == today.getYear() && m < today.getMonthValue())) {
+                    isPaid = -1;
+                } else if (y == today.getYear() && m == today.getMonthValue()
+                        && today.getDayOfMonth() > deadlineConfig.getDeadlineDay()) {
+                    isPaid = -1;
+                } else {
+                    isPaid = 0;
+                }
+            } else {
+                amt = fee.getAmount();
+                isPaid = fee.getIsPaid() != null ? fee.getIsPaid() : 0;
+            }
+            totalAmount = totalAmount.add(amt);
+
+            if (isPaid == 1) {
+                collectedAmount = collectedAmount.add(amt);
+                // worstStatus stays at most 1
+            } else if (isPaid == -1) {
+                worstStatus = Math.max(worstStatus, 3);
+            } else {
+                worstStatus = Math.max(worstStatus, 2);
+            }
+        }
+
+        if (!anyActive) return null; // 该时段内完全不在住
+
+        String statusText;
+        if (monthCount == 0) {
+            statusText = "无记录";
+        } else if (worstStatus == 1) {
+            statusText = "已缴";
+        } else if (worstStatus == 3 && collectedAmount.compareTo(BigDecimal.ZERO) > 0) {
+            statusText = "部分逾期";
+        } else if (worstStatus == 3) {
+            statusText = "逾期";
+        } else if (worstStatus == 2 && collectedAmount.compareTo(BigDecimal.ZERO) > 0) {
+            statusText = "部分待缴";
+        } else {
+            statusText = "待缴";
+        }
+
+        Map<String, Object> d = new HashMap<>();
+        d.put("householdId", h.getHouseholdId());
+        d.put("room", h.getRoom());
+        d.put("ownerName", h.getOwnerName());
+        d.put("amount", totalAmount);
+        d.put("collectedAmount", collectedAmount);
+        d.put("statusText", statusText);
+        d.put("monthCount", monthCount);
+        return d;
     }
 
     // ==================== 查询某户物业费列表 ====================
