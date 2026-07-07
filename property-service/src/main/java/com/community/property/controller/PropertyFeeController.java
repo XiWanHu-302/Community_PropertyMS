@@ -7,12 +7,10 @@ import com.community.property.entity.PropertyFee;
 import com.community.property.config.DeadlineConfig;
 import com.community.property.feign.UserServiceFeignClient;
 import com.community.property.entity.ParkingFee;
-import com.community.property.entity.ParkingSpace;
-import com.community.property.mapper.ParkingFeeMapper;
-import com.community.property.mapper.ParkingSpaceMapper;
 import com.community.property.mapper.PropertyFeeMapper;
 import com.community.property.service.FeePaymentHelper;
 import com.community.property.service.FeePaymentHelper.PaymentRange;
+import com.community.property.service.ParkingFeeQueryService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,8 +34,7 @@ import java.util.stream.Collectors;
 public class PropertyFeeController {
 
     @Resource private PropertyFeeMapper feeMapper;
-    @Resource private ParkingFeeMapper parkingFeeMapper;
-    @Resource private ParkingSpaceMapper spaceMapper;
+    @Resource private ParkingFeeQueryService parkingFeeQueryService;
     @Resource private UserServiceFeignClient userFeignClient;
     @Resource private DeadlineConfig deadlineConfig;
     @Resource private JdbcTemplate jdbcTemplate;  // 用于调用存储过程
@@ -94,44 +91,18 @@ public class PropertyFeeController {
             }
         }
 
-        // 停车费未缴（is_paid != 1）
-        List<ParkingFee> parkUnpaid = parkingFeeMapper.selectList(new LambdaQueryWrapper<ParkingFee>()
-                .eq(ParkingFee::getHouseholdId, householdId)
-                .ne(ParkingFee::getIsPaid, 1)
-                .orderByAsc(ParkingFee::getYear).orderByAsc(ParkingFee::getMonth));
-
-        // 查询该住户的停车位，补充未生成记录的月份
-        List<ParkingSpace> mySpaces = spaceMapper.selectList(new LambdaQueryWrapper<ParkingSpace>()
-                .eq(ParkingSpace::getHouseholdId, householdId));
-        List<Map<String, Object>> parkMissing = new ArrayList<>();
-        for (ParkingSpace sp : mySpaces) {
-            Set<String> spaceExistingMonths = new HashSet<>();
-            for (ParkingFee f : parkingFeeMapper.selectList(new LambdaQueryWrapper<ParkingFee>()
-                    .eq(ParkingFee::getSpaceNo, sp.getSpaceNo()))) {
-                spaceExistingMonths.add(f.getYear() + "-" + f.getMonth());
-            }
-            // 从入住月或车位分配月开始（取较晚的）
-            int startY = today.getYear(), startM = 1;
-            if (h.getCheckInDate() != null) { startY = h.getCheckInDate().getYear(); startM = h.getCheckInDate().getMonthValue(); }
-            int y = startY, m = startM;
-            while (y < today.getYear() || (y == today.getYear() && m <= today.getMonthValue())) {
-                String key = y + "-" + m;
-                if (!spaceExistingMonths.contains(key)) {
-                    Map<String, Object> d = new HashMap<>();
-                    d.put("type", "停车费");
-                    d.put("spaceNo", sp.getSpaceNo());
-                    d.put("year", y); d.put("month", m);
-                    d.put("amount", sp.getMonthlyFee() != null ? sp.getMonthlyFee() : BigDecimal.ZERO);
-                    parkMissing.add(d);
-                }
-                m++; if (m > 12) { m = 1; y++; }
-            }
-        }
+        // 停车费未缴（通过 ParkingFeeQueryService，同时修复 issue 1 车位分配日 + issue 5 N+1 查询）
+        Map<String, Object> parkData = parkingFeeQueryService.getParkingUnpaidForHousehold(
+                householdId, today);
+        @SuppressWarnings("unchecked")
+        List<ParkingFee> parkUnpaid = (List<ParkingFee>) parkData.get("unpaidList");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> parkMissing = (List<Map<String, Object>>) parkData.get("missingList");
 
         BigDecimal propTotal = propUnpaid.stream().map(PropertyFee::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
         for (Map<String, Object> d : propMissing) { propTotal = propTotal.add((BigDecimal) d.get("amount")); }
-        BigDecimal parkTotal = parkUnpaid.stream().map(ParkingFee::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
-        for (Map<String, Object> d : parkMissing) { parkTotal = parkTotal.add((BigDecimal) d.get("amount")); }
+        BigDecimal parkTotal = (BigDecimal) parkData.get("totalUnpaid");
+        parkTotal = parkTotal.add((BigDecimal) parkData.get("totalMissing"));
 
         List<Map<String, Object>> details = new ArrayList<>();
         details.addAll(propMissing);
@@ -171,21 +142,7 @@ public class PropertyFeeController {
      *  -1=逾期, 0=待缴, 1=已缴（未来月份已缴=提前缴费）
      */
     private String statusText(Integer isPaid, int year, int month, LocalDate today) {
-        if (isPaid == null) return "待缴";
-        if (isPaid == 1) {
-            if (year > today.getYear() || (year == today.getYear() && month > today.getMonthValue()))
-                return "提前缴费";
-            return "已缴";
-        }
-        if (isPaid == -1) return "逾期";
-        // is_paid = 0：历史月份为逾期；当前月根据截止日判定（已过截止日为逾期，否则待缴）
-        if (year < today.getYear() || (year == today.getYear() && month < today.getMonthValue()))
-            return "逾期";
-        // 当前月：即使 is_paid=0，过了截止日也应显示逾期（与存储过程判定一致）
-        if (year == today.getYear() && month == today.getMonthValue()
-                && today.getDayOfMonth() > deadlineConfig.getDeadlineDay())
-            return "逾期";
-        return "待缴";
+        return FeePaymentHelper.feeStatusText(isPaid, year, month, today, deadlineConfig.getDeadlineDay());
     }
 
     /**
@@ -621,7 +578,7 @@ public class PropertyFeeController {
             newFee.setYear(LocalDate.now().getYear());
             newFee.setMonth(LocalDate.now().getMonthValue());
             newFee.setAmount(amount);
-            newFee.setIsPaid(0);
+            newFee.setIsPaid(LocalDate.now().getDayOfMonth() > deadlineConfig.getDeadlineDay() ? -1 : 0);
             feeMapper.insert(newFee);
             unpaid = new ArrayList<>();
             unpaid.add(newFee);
@@ -640,11 +597,20 @@ public class PropertyFeeController {
                 .collect(Collectors.toList());
 
         // 4. 补建缺失月份的记录（预缴场景）
+        // 从源数据重新计算月费金额，而非沿用 first.getAmount()（修复 issue 8）
+        BigDecimal monthlyAmount = first.getAmount(); // 默认兜底
+        try {
+            HouseholdDTO hh = userFeignClient.getBriefById(householdId);
+            if (hh != null && hh.getArea() != null && hh.getPropertyFeeRate() != null) {
+                monthlyAmount = hh.getArea().multiply(hh.getPropertyFeeRate());
+            }
+        } catch (Exception e) { /* Feign 调用失败则使用 first.getAmount() 兜底 */ }
+
         Set<String> existing = toPay.stream().map(f -> f.getYear() + "-" + f.getMonth()).collect(Collectors.toSet());
         for (int[] ym : FeePaymentHelper.computeMissingMonths(existing, range)) {
             PropertyFee gf = new PropertyFee();
             gf.setHouseholdId(householdId); gf.setYear(ym[0]); gf.setMonth(ym[1]);
-            gf.setAmount(first.getAmount());
+            gf.setAmount(monthlyAmount);
             gf.setIsPaid(0);
             feeMapper.insert(gf);
             toPay.add(gf);
@@ -679,6 +645,7 @@ public class PropertyFeeController {
      * 根据入住日期和截止日判定 is_paid：0待缴 或 -1逾期
      */
     @PostMapping("/generate")
+    @Transactional(rollbackFor = Exception.class)
     public Result<Void> generateBill(@RequestBody Map<String, Object> body) {
         Integer householdId = (Integer) body.get("householdId");
         if (householdId == null) return Result.fail("缺少 householdId");

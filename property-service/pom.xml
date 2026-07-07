@@ -75,10 +75,23 @@
             <artifactId>spring-cloud-starter-alibaba-nacos-config</artifactId>
         </dependency>
 
+        <!-- Spring Cloud Bootstrap：Spring Cloud 2023.x 默认禁用了 bootstrap，
+             启用它以支持 bootstrap.yml 加载 Nacos 远程配置 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-bootstrap</artifactId>
+        </dependency>
+
         <!-- OpenFeign：微服务间远程调用 -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-openfeign</artifactId>
+        </dependency>
+
+        <!-- Resilience4j CircuitBreaker：Feign 降级必需，拦截包括 LoadBalancer 在内的所有异常 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-circuitbreaker-resilience4j</artifactId>
         </dependency>
 
         <!-- Spring Cloud LoadBalancer：Feign + Nacos 服务发现必需 -->

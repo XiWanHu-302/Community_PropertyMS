@@ -12,7 +12,7 @@ import java.util.List;
  * user-service 的 OpenFeign 客户端
  * 使用 raw 端点（不包装 Result），避免泛型擦除导致 LocalDate 等字段丢失
  */
-@FeignClient(name = "user-service")
+@FeignClient(name = "user-service", fallbackFactory = UserServiceFeignClientFallback.class)
 public interface UserServiceFeignClient {
 
     /** 查询所有在住住户 */

@@ -82,4 +82,39 @@ public class FeePaymentHelper {
         return prefix + java.time.LocalDateTime.now()
                 .format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
     }
+
+    // ==================== 状态判定（物业费和停车费共用） ====================
+
+    /**
+     * is_paid 三态 → 展示文本（物业费和停车费共用核心逻辑）
+     * <p>
+     * -1 = 逾期, 0 = 待缴, 1 = 已缴（未来月份已缴显示为"提前缴费"）
+     * <p>
+     * 此方法只做纯状态映射，不涉及"历史记录"等业务特有概念（由各 Controller 自行叠加）
+     *
+     * @param isPaid     -1逾期 / 0待缴 / 1已缴
+     * @param year       账单年份
+     * @param month      账单月份
+     * @param today      当前日期
+     * @param deadlineDay 每月缴费截止日（1-28）
+     * @return "已缴" / "提前缴费" / "逾期" / "待缴"
+     */
+    public static String feeStatusText(Integer isPaid, int year, int month,
+                                        LocalDate today, int deadlineDay) {
+        if (isPaid == null) return "待缴";
+        if (isPaid == 1) {
+            // 未来月份已缴 → 提前缴费
+            if (year > today.getYear() || (year == today.getYear() && month > today.getMonthValue()))
+                return "提前缴费";
+            return "已缴";
+        }
+        if (isPaid == -1) return "逾期";
+        // is_paid = 0：历史月份为逾期；当前月根据截止日判定
+        if (year < today.getYear() || (year == today.getYear() && month < today.getMonthValue()))
+            return "逾期";
+        if (year == today.getYear() && month == today.getMonthValue()
+                && today.getDayOfMonth() > deadlineDay)
+            return "逾期";
+        return "待缴";
+    }
 }

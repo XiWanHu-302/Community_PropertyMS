@@ -1,0 +1,22 @@
+# ============================================================
+# bootstrap.yml — 在 application.yml 之前加载
+# 负责：Nacos 配置中心的连接和远程配置拉取
+# 需要 spring-cloud-starter-bootstrap 依赖支持
+# ============================================================
+spring:
+  application:
+    name: property-service
+
+  cloud:
+    nacos:
+      config:
+        server-addr: localhost:8848
+        namespace: public
+        username: nacos
+        password: nacos
+        file-extension: yaml
+        # 共享配置：JWT 密钥等两个微服务共用的配置
+        shared-configs:
+          - data-id: community-property.yaml
+            group: DEFAULT_GROUP
+            refresh: true

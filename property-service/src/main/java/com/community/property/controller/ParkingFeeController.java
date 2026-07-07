@@ -44,29 +44,23 @@ public class ParkingFeeController {
         } catch (Exception e) { /* 存储过程可能尚未部署 */ }
     }
 
-    /** is_paid 三态 → 展示文本（含"历史记录"判断） */
+    /** is_paid 三态 → 展示文本（基于 FeePaymentHelper 共用逻辑，叠加"历史记录"判断） */
     private String statusText(ParkingFee fee, int year, int month, LocalDate today, LocalDate assignedDate) {
-        if (fee != null && fee.getIsPaid() != null && fee.getIsPaid() == 1) {
-            if (year > today.getYear() || (year == today.getYear() && month > today.getMonthValue()))
-                return "提前缴费";
-            return "已缴";
-        }
-        // 分配前的记录标记为"历史记录"
+        // 先判断是否车位分配前的历史记录
         if (assignedDate != null
                 && (year < assignedDate.getYear() || (year == assignedDate.getYear() && month < assignedDate.getMonthValue())))
             return "历史记录";
-        if (fee != null && fee.getIsPaid() != null && fee.getIsPaid() == -1) return "逾期";
-        if (year < today.getYear() || (year == today.getYear() && month < today.getMonthValue())) return "逾期";
-        // 当前月：即使 is_paid=0，过了截止日也应显示逾期（与存储过程判定一致）
-        if (year == today.getYear() && month == today.getMonthValue()
-                && today.getDayOfMonth() > deadlineConfig.getDeadlineDay())
-            return "逾期";
-        return "待缴";
+        // 核心三态映射委托给共用方法（修复 issue 10）
+        Integer isPaid = (fee != null) ? fee.getIsPaid() : null;
+        return FeePaymentHelper.feeStatusText(isPaid, year, month, today, deadlineConfig.getDeadlineDay());
     }
 
     /** 判断车位在指定月份是否已有租户分配（只从分配月起计费） */
     private boolean isAssignedInMonth(ParkingSpace s, int year, int month) {
-        if (s.getAssignedDate() == null) return true; // 旧数据兼容：无分配日期视为一直分配
+        if (s.getAssignedDate() == null) {
+            // 无分配日期：若车位当前没有租户，说明空闲/从未分配；若有租户则是旧数据兼容
+            return s.getHouseholdId() != null;
+        }
         if (year < s.getAssignedDate().getYear()) return false;
         if (year == s.getAssignedDate().getYear() && month < s.getAssignedDate().getMonthValue()) return false;
         return true;
@@ -381,11 +375,10 @@ public class ParkingFeeController {
             newFee.setYear(LocalDate.now().getYear());
             newFee.setMonth(LocalDate.now().getMonthValue());
             newFee.setAmount(amount);
-            newFee.setIsPaid(0);
+            newFee.setIsPaid(LocalDate.now().getDayOfMonth() > deadlineConfig.getDeadlineDay() ? -1 : 0);
             feeMapper.insert(newFee);
             unpaid = new ArrayList<>();
             unpaid.add(newFee);
-            // 确保返回的 first 引用指向新记录
         }
 
         LocalDate today = LocalDate.now();
@@ -401,12 +394,21 @@ public class ParkingFeeController {
                 .collect(Collectors.toList());
 
         // 4. 补建缺失月份（预缴场景）
+        // 从车位数据重新计算月费金额，而非沿用 first.getAmount()（修复 issue 8）
+        BigDecimal monthlyParkAmount = first.getAmount(); // 默认兜底
+        try {
+            ParkingSpace sp = spaceMapper.selectById(spaceNo);
+            if (sp != null && sp.getMonthlyFee() != null) {
+                monthlyParkAmount = sp.getMonthlyFee();
+            }
+        } catch (Exception e) { /* 兜底 */ }
+
         Set<String> existing = toPay.stream().map(f -> f.getYear() + "-" + f.getMonth()).collect(Collectors.toSet());
         for (int[] ym : FeePaymentHelper.computeMissingMonths(existing, range)) {
             ParkingFee gf = new ParkingFee();
             gf.setSpaceNo(spaceNo); gf.setYear(ym[0]); gf.setMonth(ym[1]);
             gf.setHouseholdId(first.getHouseholdId());  // 必须设置，数据库 NOT NULL
-            gf.setAmount(first.getAmount());
+            gf.setAmount(monthlyParkAmount);
             gf.setIsPaid(0);
             feeMapper.insert(gf);
             toPay.add(gf);

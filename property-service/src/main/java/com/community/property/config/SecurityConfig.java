@@ -40,6 +40,7 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()   // OPTIONS 预检放行
                 .requestMatchers("/hello").permitAll()
+                .requestMatchers("/feign-test").permitAll()          // Feign 降级测试接口
                 .requestMatchers("/property-fee/unpaid-raw/*").permitAll()   // 供 user-service 内部调用（搬离检查）
                 .requestMatchers("/property-fee/generate").permitAll()      // 供 user-service 内部调用（入住生成账单）
                 .anyRequest().authenticated()

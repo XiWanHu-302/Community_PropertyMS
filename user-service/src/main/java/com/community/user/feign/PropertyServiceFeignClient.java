@@ -11,7 +11,7 @@ import java.util.Map;
 /**
  * property-service 的 Feign 客户端（user-service 调用 property-service）
  */
-@FeignClient(name = "property-service")
+@FeignClient(name = "property-service", fallbackFactory = PropertyServiceFeignClientFallback.class)
 public interface PropertyServiceFeignClient {
 
     /** 查询住户未缴费用（物业费+停车费） */
