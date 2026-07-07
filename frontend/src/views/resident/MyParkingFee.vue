@@ -17,15 +17,15 @@
               <el-option label="12 个月" :value="12" />
             </el-select>
             <el-button type="success" :loading="paying" @click="payFee(sp.spaceNo)">
-              {{ firstUnpaidMap[sp.spaceNo] ? `缴费 ${feeDuration} 个月` : `预缴 ${feeDuration} 个月` }}
+              缴费 {{ feeDuration }} 个月
+            </el-button>
+            <el-button type="danger" plain :loading="releasing" @click="releaseSpace(sp.spaceNo)">
+              释放车位
             </el-button>
           </div>
         </div>
         <el-alert v-if="firstUnpaidMap[sp.spaceNo]" type="warning" :closable="false" show-icon style="margin-bottom:10px">
           最早未缴：{{ firstUnpaidMap[sp.spaceNo].year }}年{{ firstUnpaidMap[sp.spaceNo].month }}月（{{ firstUnpaidMap[sp.spaceNo].isPaid === -1 ? '已逾期' : '待缴' }}），从该月起依次缴纳 {{ feeDuration }} 个月
-        </el-alert>
-        <el-alert v-else type="success" :closable="false" show-icon style="margin-bottom:10px">
-          当前无欠费，可预缴未来月份
         </el-alert>
         <el-table :data="feeMap[sp.spaceNo] || []" border stripe v-loading="feeLoading" style="margin-top:10px">
           <el-table-column prop="spaceNo" label="车位编号" width="100" />
@@ -35,7 +35,7 @@
           <el-table-column prop="amount" label="金额(元)" width="110" />
           <el-table-column label="状态" width="90">
             <template #default="{row}">
-              <el-tag v-if="row.isPaid === 1" :type="row.statusText === '提前缴费' ? 'info' : 'success'" size="small">{{ row.statusText || '已缴' }}</el-tag>
+              <el-tag v-if="row.isPaid === 1" type="success" size="small">已缴</el-tag>
               <el-tag v-else-if="row.isPaid === -1" type="danger" size="small">逾期</el-tag>
               <el-tag v-else-if="row.statusText === '历史记录'" type="info" size="small">历史记录</el-tag>
               <el-tag v-else type="warning" size="small">待缴</el-tag>
@@ -87,7 +87,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import request2 from '../../utils/request2'
 import state from '../../stores/user'
 
@@ -99,6 +99,7 @@ const freeSpaces = ref([])      // 空闲车位列表
 const spaceLoading = ref(false)
 const feeLoading = ref(false)
 const paying = ref(false)
+const releasing = ref(false)
 const feeDuration = ref(1)
 
 // 每个车位的费用列表
@@ -157,6 +158,23 @@ const payFee = async (spaceNo) => {
     await loadFeesForSpace(spaceNo)
   } catch (e) { /* 拦截器已处理 */ }
   finally { paying.value = false }
+}
+
+const releaseSpace = async (spaceNo) => {
+  try {
+    await ElMessageBox.confirm(`确认释放车位 ${spaceNo}？如有未缴停车费需先缴清。`, '释放车位', {
+      confirmButtonText: '确认释放', cancelButtonText: '取消', type: 'warning'
+    })
+  } catch (e) { return }  // 用户取消
+  releasing.value = true
+  try {
+    await request2.put(`/parking-space/${spaceNo}/release`)
+    ElMessage.success('车位已释放')
+    // 刷新车位列表和费用数据
+    await loadSpaces()
+    for (const sp of mySpaces.value) await loadFeesForSpace(sp.spaceNo)
+  } catch (e) { /* 拦截器已处理（未缴费用会返回错误提示） */ }
+  finally { releasing.value = false }
 }
 
 // ==================== 租用车位 ====================

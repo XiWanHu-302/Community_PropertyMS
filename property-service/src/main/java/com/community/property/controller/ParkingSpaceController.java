@@ -40,7 +40,7 @@ public class ParkingSpaceController {
     private static final String SPACE_NO_PATTERN = "^[A-Z]\\d{3}$";
 
     @GetMapping("/list")
-    @PreAuthorize("hasAnyRole('ADMIN','RESIDENT')")
+    @PreAuthorize("hasAnyRole('ADMIN','RESIDENT','MAINTENANCE')")
     public Result<List<Map<String, Object>>> list() {
         List<ParkingSpace> spaces = spaceMapper.selectList(null);
         List<Map<String, Object>> vos = new ArrayList<>();

@@ -381,7 +381,7 @@ public class RepairController {
      * GET /repair/stats
      */
     @GetMapping("/stats")
-    @PreAuthorize("hasAnyRole('ADMIN','MAINTENANCE')")
+    @PreAuthorize("hasAnyRole('ADMIN','MAINTENANCE','RESIDENT')")
     public Result<Map<String, Object>> stats() {
         Map<String, Object> data = new HashMap<>();
         data.put("pendingCount", repairMapper.selectCount(

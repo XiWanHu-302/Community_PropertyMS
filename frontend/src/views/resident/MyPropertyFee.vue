@@ -32,7 +32,7 @@
             <el-option label="12 个月" :value="12" />
           </el-select>
           <el-button type="success" :loading="paying" @click="payOne">
-            {{ firstUnpaid ? `缴费 ${duration} 个月` : `预缴 ${duration} 个月` }}
+            缴费 {{ duration }} 个月
           </el-button>
         </div>
       </div>
@@ -40,9 +40,6 @@
       <!-- 最早未缴提示 -->
       <el-alert v-if="firstUnpaid" type="warning" :closable="false" show-icon style="margin-bottom:10px">
         最早未缴：{{ firstUnpaid.year }}年{{ firstUnpaid.month }}月（{{ firstUnpaid.isPaid === -1 ? '已逾期' : '待缴' }}），从该月起依次缴纳 {{ duration }} 个月
-      </el-alert>
-      <el-alert v-else type="success" :closable="false" show-icon style="margin-bottom:10px">
-        当前无欠费，可预缴未来月份
       </el-alert>
 
       <el-table :data="list" border stripe v-loading="loading" style="margin-top:10px">
@@ -52,7 +49,7 @@
         <el-table-column prop="amount" label="金额(元)" width="110" />
         <el-table-column label="状态" width="100">
           <template #default="{row}">
-            <el-tag v-if="row.isPaid === 1" :type="row.statusText === '提前缴费' ? 'info' : 'success'" size="small">{{ row.statusText || '已缴' }}</el-tag>
+            <el-tag v-if="row.isPaid === 1" type="success" size="small">已缴</el-tag>
             <el-tag v-else-if="row.isPaid === -1" type="danger" size="small">逾期</el-tag>
             <el-tag v-else type="warning" size="small">待缴</el-tag>
           </template>

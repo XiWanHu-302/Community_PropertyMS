@@ -5,7 +5,7 @@
       <div class="header-inner">
         <!-- Logo 区域 -->
         <div class="logo-area" @click="router.push('/dashboard')">
-          <span class="logo-icon">🏠</span>
+          <el-icon :size="24" color="#409EFF"><OfficeBuilding /></el-icon>
           <span class="logo-text">物业管理系统</span>
         </div>
 
@@ -94,7 +94,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ArrowDown, HomeFilled, UserFilled, Money, Tools, DataAnalysis, Clock } from '@element-plus/icons-vue'
+import { ArrowDown, HomeFilled, UserFilled, Money, Tools, DataAnalysis, Clock, OfficeBuilding } from '@element-plus/icons-vue'
 import { clearUser } from '../stores/user'
 import state from '../stores/user'
 import ProfileDialog from '../components/ProfileDialog.vue'
@@ -257,10 +257,6 @@ const handleLogout = () => { clearUser(); router.push('/login') }
   cursor: pointer;
   flex-shrink: 0;
   margin-right: 16px;
-}
-
-.logo-icon {
-  font-size: 22px;
 }
 
 .logo-text {

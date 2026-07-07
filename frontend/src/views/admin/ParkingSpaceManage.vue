@@ -77,7 +77,7 @@
             <el-table-column prop="amount" label="应缴金额" width="110" />
             <el-table-column label="状态" width="80">
               <template #default="{row}">
-                <el-tag v-if="row.statusText==='已缴' || row.statusText==='提前缴费'" type="success" size="small">{{ row.statusText }}</el-tag>
+                <el-tag v-if="row.statusText==='已缴'" type="success" size="small">已缴</el-tag>
                 <el-tag v-else-if="row.statusText==='逾期'" type="danger" size="small">逾期</el-tag>
                 <el-tag v-else-if="row.statusText==='历史记录'" type="info" size="small">历史记录</el-tag>
                 <el-tag v-else type="warning" size="small">待缴</el-tag>
@@ -88,7 +88,7 @@
             <el-table-column prop="billNo" label="缴费单号" min-width="150" />
             <el-table-column label="操作" width="80" fixed="right">
               <template #default="{row}">
-                <el-button v-if="row.statusText!=='已缴' && row.statusText!=='提前缴费' && row.statusText!=='历史记录'" size="small" type="success" @click="payParkingFee(row)">缴费</el-button>
+                <el-button v-if="row.statusText!=='已缴' && row.statusText!=='历史记录'" size="small" type="success" @click="payParkingFee(row)">缴费</el-button>
                 <el-tag v-else type="info" size="small">—</el-tag>
               </template>
             </el-table-column>
