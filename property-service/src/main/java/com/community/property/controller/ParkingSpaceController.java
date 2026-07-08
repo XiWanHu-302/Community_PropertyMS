@@ -11,7 +11,6 @@ import com.community.property.mapper.ParkingFeeMapper;
 import com.community.property.mapper.ParkingSpaceMapper;
 import com.community.property.config.DeadlineConfig;
 import com.community.property.security.JwtUtil;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -34,7 +33,6 @@ public class ParkingSpaceController {
     @Resource private JwtUtil jwtUtil;                          // JWT 工具（解析 refId/role）
     @Resource private HttpServletRequest request;               // 获取请求头中的 Token
     @Resource private DeadlineConfig deadlineConfig;            // 截止日配置
-    @Resource private JdbcTemplate jdbcTemplate;                // 存储过程调用
 
     /** 车位编号格式：字母 + 3位数字（如 A001） */
     private static final String SPACE_NO_PATTERN = "^[A-Z]\\d{3}$";
@@ -200,27 +198,7 @@ public class ParkingSpaceController {
             }
         }
 
-        // 1. 确保当前月有费用记录（释放前自动生成，防止漏检本月欠费）
-        LocalDate today = LocalDate.now();
-        ParkingFee currentFee = feeMapper.selectOne(
-                new LambdaQueryWrapper<ParkingFee>()
-                        .eq(ParkingFee::getSpaceNo, spaceNo)
-                        .eq(ParkingFee::getYear, today.getYear())
-                        .eq(ParkingFee::getMonth, today.getMonthValue()));
-        if (currentFee == null) {
-            ParkingFee newFee = new ParkingFee();
-            newFee.setSpaceNo(spaceNo);
-            newFee.setHouseholdId(s.getHouseholdId());
-            newFee.setYear(today.getYear());
-            newFee.setMonth(today.getMonthValue());
-            newFee.setAmount(s.getMonthlyFee());
-            int isPaid = today.getDayOfMonth() > deadlineConfig.getDeadlineDay() ? -1 : 0;
-            newFee.setIsPaid(isPaid);
-            feeMapper.insert(newFee);
-        }
-
-        // 2. 标记逾期后再检查未缴停车费（is_paid != 1，即 0待缴 + -1逾期）
-        try { jdbcTemplate.update("CALL sp_mark_overdue(?)", deadlineConfig.getDeadlineDay()); } catch (Exception e) {}
+        // 直接查数据库中的待缴/逾期费用（数据库是唯一真相来源，不补建）
         List<ParkingFee> unpaid = feeMapper.selectList(
                 new LambdaQueryWrapper<ParkingFee>()
                         .eq(ParkingFee::getSpaceNo, spaceNo)

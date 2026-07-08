@@ -4,8 +4,7 @@ import java.time.LocalDate;
 import java.util.*;
 
 /**
- * 缴费公共逻辑 —— 消除 PropertyFeeController 和 ParkingFeeController 中的重复代码
- * 两个 pay() 方法的差异仅在实体类型和账单前缀，核心计算逻辑完全相同
+ * 缴费公共逻辑 —— 物业费和停车费共用的纯计算工具
  */
 public class FeePaymentHelper {
 
@@ -26,17 +25,14 @@ public class FeePaymentHelper {
     /**
      * 计算缴费起止范围
      *
-     * @param firstYear   第一个未缴月的年份
-     * @param firstMonth  第一个未缴月的月份
-     * @param duration    缴费月数（1 / 6 / 12）
-     * @param today       当前日期
-     * @return 缴费范围：从第一个未缴月到截止月（至少覆盖当前月）
+     * @param firstYear  第一个未缴月的年份
+     * @param firstMonth 第一个未缴月的月份
+     * @param duration   缴费月数（1 / 6 / 12）
+     * @param today      当前日期
+     * @return 缴费范围：从第一个未缴月到截止月
      */
     public static PaymentRange calculatePaymentRange(int firstYear, int firstMonth,
                                                       int duration, LocalDate today) {
-        int curYear = today.getYear(), curMonth = today.getMonthValue();
-
-        // 结束月 = 开始月 + 月数 - 1
         int endMonth = firstMonth + duration - 1;
         int endYear = firstYear;
         while (endMonth > 12) { endMonth -= 12; endYear++; }
@@ -52,9 +48,9 @@ public class FeePaymentHelper {
     }
 
     /**
-     * 计算范围内缺少的月份（已有记录集合 vs 完整范围）
+     * 计算范围内缺少的月份
      *
-     * @param existingKeys 已有记录的 "年-月" 字符串集合，如 {"2026-1", "2026-3"}
+     * @param existingKeys 已有记录的 "年-月" 字符串集合
      * @param range        缴费范围
      * @return 缺少的月份列表，每个元素为 [year, month]
      */
@@ -73,48 +69,37 @@ public class FeePaymentHelper {
     }
 
     /**
-     * 生成缴费单号
+     * 生成缴费单号，格式：前缀 + yyyyMMddHHmmss + 3位随机数
      *
      * @param prefix 前缀：物业费 "WY"，停车费 "TC"
-     * @return 如 "WY20260705165930"
+     * @return 如 "WY20260703150230001"
      */
     public static String generateBillNo(String prefix) {
-        return prefix + java.time.LocalDateTime.now()
+        String timestamp = java.time.LocalDateTime.now()
                 .format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
+        String random = String.format("%03d", new Random().nextInt(1000));
+        return prefix + timestamp + random;
     }
 
     // ==================== 状态判定（物业费和停车费共用） ====================
 
     /**
-     * is_paid 三态 → 展示文本（物业费和停车费共用核心逻辑）
+     * is_paid 三态 → 展示文本
      * <p>
-     * -1 = 逾期, 0 = 待缴, 1 = 已缴（未来月份已缴显示为"提前缴费"）
+     * -1 = 逾期, 0 = 待缴, 1 = 已缴
      * <p>
-     * 此方法只做纯状态映射，不涉及"历史记录"等业务特有概念（由各 Controller 自行叠加）
+     * 数据库 is_paid 字段是唯一真相来源，不做日期推导
      *
-     * @param isPaid     -1逾期 / 0待缴 / 1已缴
-     * @param year       账单年份
-     * @param month      账单月份
-     * @param today      当前日期
-     * @param deadlineDay 每月缴费截止日（1-28）
-     * @return "已缴" / "提前缴费" / "逾期" / "待缴"
+     * @param isPaid -1逾期 / 0待缴 / 1已缴
+     * @return "已缴" / "逾期" / "待缴"
      */
-    public static String feeStatusText(Integer isPaid, int year, int month,
-                                        LocalDate today, int deadlineDay) {
+    public static String feeStatusText(Integer isPaid) {
         if (isPaid == null) return "待缴";
-        if (isPaid == 1) {
-            // 未来月份已缴 → 提前缴费
-            if (year > today.getYear() || (year == today.getYear() && month > today.getMonthValue()))
-                return "提前缴费";
-            return "已缴";
+        switch (isPaid) {
+            case -1: return "逾期";
+            case 0:  return "待缴";
+            case 1:  return "已缴";
+            default: return "待缴";
         }
-        if (isPaid == -1) return "逾期";
-        // is_paid = 0：历史月份为逾期；当前月根据截止日判定
-        if (year < today.getYear() || (year == today.getYear() && month < today.getMonthValue()))
-            return "逾期";
-        if (year == today.getYear() && month == today.getMonthValue()
-                && today.getDayOfMonth() > deadlineDay)
-            return "逾期";
-        return "待缴";
     }
 }

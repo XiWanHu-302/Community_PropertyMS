@@ -281,6 +281,7 @@ DELIMITER ;
 
 -- --------------------------------------
 -- 4.1 按楼号+房号查询住户的物业费及停车费
+-- 状态：-1=逾期, 0=待缴, 1=已缴
 -- --------------------------------------
 DELIMITER //
 
@@ -298,7 +299,12 @@ BEGIN
     pf.year         AS 年份,
     pf.month        AS 月份,
     pf.amount       AS 应缴物业费,
-    CASE WHEN pf.is_paid = 1 THEN '已缴' ELSE '未缴' END AS 缴费状态,
+    CASE 
+      WHEN pf.is_paid = 1 THEN '已缴'
+      WHEN pf.is_paid = -1 THEN '逾期'
+      WHEN pf.is_paid = 0 THEN '待缴'
+      ELSE '未生成'
+    END AS 缴费状态,
     pf.pay_date     AS 缴费日期,
     pf.bill_no      AS 缴费单号
   FROM household h
@@ -317,7 +323,12 @@ BEGIN
     pkf.year        AS 年份,
     pkf.month       AS 月份,
     pkf.amount      AS 应缴停车费,
-    CASE WHEN pkf.is_paid = 1 THEN '已缴' ELSE '未缴' END AS 缴费状态,
+    CASE 
+      WHEN pkf.is_paid = 1 THEN '已缴'
+      WHEN pkf.is_paid = -1 THEN '逾期'
+      WHEN pkf.is_paid = 0 THEN '待缴'
+      ELSE '未生成'
+    END AS 缴费状态,
     pkf.pay_date    AS 缴费日期,
     pkf.bill_no     AS 缴费单号
   FROM household h
@@ -335,6 +346,7 @@ DELIMITER ;
 
 -- --------------------------------------
 -- 4.2 按年月统计小区物业费汇总
+-- 状态：-1=逾期, 0=待缴, 1=已缴
 -- --------------------------------------
 DELIMITER //
 
@@ -349,8 +361,10 @@ BEGIN
     COUNT(*) AS 总户数,
     SUM(pf.amount) AS 应缴物业费总额,
     SUM(CASE WHEN pf.is_paid = 1 THEN pf.amount ELSE 0 END) AS 已缴物业费总额,
-    SUM(CASE WHEN pf.is_paid = 0 THEN pf.amount ELSE 0 END) AS 未缴物业费总额,
-    COUNT(CASE WHEN pf.is_paid = 0 THEN 1 END) AS 未缴户数
+    SUM(CASE WHEN pf.is_paid = 0 THEN pf.amount ELSE 0 END) AS 待缴物业费总额,
+    SUM(CASE WHEN pf.is_paid = -1 THEN pf.amount ELSE 0 END) AS 逾期物业费总额,
+    COUNT(CASE WHEN pf.is_paid = 0 THEN 1 END) AS 待缴户数,
+    COUNT(CASE WHEN pf.is_paid = -1 THEN 1 END) AS 逾期户数
   FROM property_fee pf
   JOIN household h ON pf.household_id = h.household_id
   WHERE pf.year  = p_year
@@ -385,29 +399,80 @@ END//
 DELIMITER ;
 
 -- --------------------------------------
--- 4.5 批量标记逾期（查询时调用，将过期的待缴账单标记为逾期）
+-- 4.5 每月1日生成当月账单（定时任务调用）
+-- 关键逻辑：通过 NOT EXISTS 检查避免重复生成
+-- 若住户/车位已存在当月账单记录（包括预缴生成的记录），则跳过不重复生成
 -- --------------------------------------
 DELIMITER //
-CREATE PROCEDURE sp_mark_overdue(IN p_deadline_day INT)
+CREATE PROCEDURE sp_generate_monthly_bills()
 BEGIN
-  DECLARE cur_year INT DEFAULT YEAR(CURDATE());
-  DECLARE cur_month INT DEFAULT MONTH(CURDATE());
-  -- 历史月份未缴 → 逾期
-  UPDATE property_fee SET is_paid = -1 WHERE is_paid = 0
-    AND (year < cur_year OR (year = cur_year AND month < cur_month));
-  -- 当前月已过截止日 → 逾期
-  UPDATE property_fee SET is_paid = -1 WHERE is_paid = 0
-    AND year = cur_year AND month = cur_month AND DAY(CURDATE()) > p_deadline_day;
-  -- parking_fee 同理
-  UPDATE parking_fee SET is_paid = -1 WHERE is_paid = 0
-    AND (year < cur_year OR (year = cur_year AND month < cur_month));
-  UPDATE parking_fee SET is_paid = -1 WHERE is_paid = 0
-    AND year = cur_year AND month = cur_month AND DAY(CURDATE()) > p_deadline_day;
+  DECLARE current_year INT;
+  DECLARE current_month INT;
+  
+  SELECT YEAR(CURDATE()) INTO current_year;
+  SELECT MONTH(CURDATE()) INTO current_month;
+  
+  -- 生成物业费账单：为所有在住住户（status=1）生成当月记录
+  INSERT INTO property_fee (household_id, year, month, amount, is_paid)
+  SELECT h.household_id, current_year, current_month,
+         h.area * h.property_fee_rate, 0
+  FROM household h
+  WHERE h.status = 1
+    AND NOT EXISTS (
+      SELECT 1 FROM property_fee pf
+      WHERE pf.household_id = h.household_id
+        AND pf.year = current_year
+        AND pf.month = current_month
+    );
+  
+  -- 生成停车费账单：为所有已租车位（status=1）生成当月记录
+  INSERT INTO parking_fee (space_no, household_id, year, month, amount, is_paid)
+  SELECT ps.space_no, ps.household_id, current_year, current_month,
+         ps.monthly_fee, 0
+  FROM parking_space ps
+  WHERE ps.status = 1
+    AND ps.household_id IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM parking_fee pf
+      WHERE pf.space_no = ps.space_no
+        AND pf.year = current_year
+        AND pf.month = current_month
+    );
 END//
 DELIMITER ;
 
 -- --------------------------------------
--- 4.6 截止日变更后刷新本月待缴/逾期状态
+-- 4.6 每天检查逾期并更新状态（定时任务调用）
+-- 只有当天是截止日后的第一天时才执行逾期标记
+-- --------------------------------------
+DELIMITER //
+CREATE PROCEDURE sp_mark_overdue(IN p_deadline_day INT)
+BEGIN
+  DECLARE current_day INT;
+  
+  SELECT DAY(CURDATE()) INTO current_day;
+  
+  -- 只有当天是截止日后的第一天时才执行逾期标记
+  IF current_day = p_deadline_day + 1 THEN
+    -- 更新物业费逾期状态
+    UPDATE property_fee
+    SET is_paid = -1
+    WHERE is_paid = 0
+      AND year = YEAR(CURDATE())
+      AND month = MONTH(CURDATE());
+    
+    -- 更新停车费逾期状态
+    UPDATE parking_fee
+    SET is_paid = -1
+    WHERE is_paid = 0
+      AND year = YEAR(CURDATE())
+      AND month = MONTH(CURDATE());
+  END IF;
+END//
+DELIMITER ;
+
+-- --------------------------------------
+-- 4.7 截止日变更后刷新本月待缴/逾期状态
 -- --------------------------------------
 DELIMITER //
 CREATE PROCEDURE sp_refresh_after_deadline_change(IN p_new_deadline INT)
@@ -440,9 +505,9 @@ INSERT INTO household (household_id, building_no, floor_no, unit_no, area, prope
                        owner_name, phone, work_unit, family_size, repair_fund_balance,
                        status, check_in_date)
 VALUES
-(1, '28', 13, 2, 135.00, 2.80, '张三', '13468029999', 'IBM公司', 3, 7500.00, 1, '2025-03-15'),
+(1, '28', 13, 2, 135.00, 2.80, '张三', '13468029999', 'IBM公司', 3, 7500.00, 1, '2026-01-15'),
 (2, '28', 5,  1,  90.00, 2.80, '李四', '14368130001', '阿里巴巴', 2, 5000.00, 1, '2026-10-01'),
-(3, '29', 8,  3, 120.00, 2.50, '王五', '15668250002', '腾讯公司', 4, 10000.00, 1, '2024-01-10');
+(3, '29', 8,  3, 120.00, 2.50, '王五', '15668250002', '腾讯公司', 4, 10000.00, 1, '2026-01-10');
 
 -- 维修员
 INSERT INTO maintenance_staff (worker_no, real_name, phone, status) VALUES

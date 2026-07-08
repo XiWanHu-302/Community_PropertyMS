@@ -2,7 +2,6 @@ package com.community.property.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.community.common.dto.HouseholdDTO;
-import com.community.property.config.DeadlineConfig;
 import com.community.property.entity.ParkingFee;
 import com.community.property.entity.ParkingSpace;
 import com.community.property.entity.PropertyFee;
@@ -13,42 +12,29 @@ import com.community.property.mapper.PropertyFeeMapper;
 import jakarta.annotation.Resource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
- * 物业费/停车费定时任务
+ * 物业费/停车费定时任务 —— 每月1日批量创建当月账单
  * <p>
- * - 每月1日凌晨2点：批量创建当月账单（物业费 + 停车费）
- * - 截止日次日凌晨2点：标记逾期
- * <p>
- * 注意：定时任务是"兜底保障"，不替代 controller 中已有的懒加载逻辑。
- * 懒加载仍是"实时响应"（如住户打开页面时即时创建当月记录）。
+ * 逾期标记由数据库端（MySQL 定时事件调用 sp_mark_overdue）处理，应用层不参与。
  */
 @Component
 public class FeeScheduler {
 
     private static final Logger log = LoggerFactory.getLogger(FeeScheduler.class);
 
-    @Resource
-    private DeadlineConfig deadlineConfig;
-    @Resource
-    private JdbcTemplate jdbcTemplate;
-    @Resource
-    private PropertyFeeMapper propertyFeeMapper;
-    @Resource
-    private ParkingFeeMapper parkingFeeMapper;
-    @Resource
-    private ParkingSpaceMapper parkingSpaceMapper;
-    @Resource
-    private UserServiceFeignClient userFeignClient;
-
-    // ==================== 每月1日：批量创建当月账单 ====================
+    @Resource private PropertyFeeMapper propertyFeeMapper;
+    @Resource private ParkingFeeMapper parkingFeeMapper;
+    @Resource private ParkingSpaceMapper parkingSpaceMapper;
+    @Resource private UserServiceFeignClient userFeignClient;
 
     /**
      * 每月1日凌晨2:00执行，为所有在住住户和已租车位创建当月费用记录
@@ -59,7 +45,7 @@ public class FeeScheduler {
         LocalDate today = LocalDate.now();
         int year = today.getYear(), month = today.getMonthValue();
 
-        // ---- 1. 物业费：所有在住住户 ----
+        // ---- 1. 物业费：批量查询已有记录，内存去重（修复 N+1） ----
         List<HouseholdDTO> households = null;
         try {
             households = userFeignClient.getActiveHouseholds();
@@ -68,23 +54,25 @@ public class FeeScheduler {
             households = null;
         }
         int propCreated = 0;
-        if (households != null) {
+        if (households != null && !households.isEmpty()) {
+            // 批量查询当月已有记录
+            List<PropertyFee> existingFees = propertyFeeMapper.selectList(
+                    new LambdaQueryWrapper<PropertyFee>()
+                            .eq(PropertyFee::getYear, year)
+                            .eq(PropertyFee::getMonth, month));
+            Set<Integer> existingIds = existingFees.stream()
+                    .map(PropertyFee::getHouseholdId).collect(Collectors.toSet());
+
             for (HouseholdDTO h : households) {
                 try {
-                    PropertyFee existing = propertyFeeMapper.selectOne(
-                            new LambdaQueryWrapper<PropertyFee>()
-                                    .eq(PropertyFee::getHouseholdId, h.getHouseholdId())
-                                    .eq(PropertyFee::getYear, year)
-                                    .eq(PropertyFee::getMonth, month));
-                    if (existing == null) {
+                    if (!existingIds.contains(h.getHouseholdId())) {
                         BigDecimal amount = (h.getArea() != null && h.getPropertyFeeRate() != null)
                                 ? h.getArea().multiply(h.getPropertyFeeRate()) : BigDecimal.ZERO;
                         PropertyFee fee = new PropertyFee();
                         fee.setHouseholdId(h.getHouseholdId());
-                        fee.setYear(year);
-                        fee.setMonth(month);
+                        fee.setYear(year); fee.setMonth(month);
                         fee.setAmount(amount);
-                        fee.setIsPaid(0);  // 待缴
+                        fee.setIsPaid(0);
                         propertyFeeMapper.insert(fee);
                         propCreated++;
                     }
@@ -94,27 +82,28 @@ public class FeeScheduler {
             }
         }
 
-        // ---- 2. 停车费：所有已租车位 ----
+        // ---- 2. 停车费：批量查询已有记录，内存去重（修复 N+1） ----
         List<ParkingSpace> activeSpaces = parkingSpaceMapper.selectList(
                 new LambdaQueryWrapper<ParkingSpace>()
                         .eq(ParkingSpace::getStatus, 1)
                         .isNotNull(ParkingSpace::getHouseholdId));
         int parkCreated = 0;
-        if (activeSpaces != null) {
+        if (activeSpaces != null && !activeSpaces.isEmpty()) {
+            List<ParkingFee> existingParkingFees = parkingFeeMapper.selectList(
+                    new LambdaQueryWrapper<ParkingFee>()
+                            .eq(ParkingFee::getYear, year)
+                            .eq(ParkingFee::getMonth, month));
+            Set<String> existingSpaceNos = existingParkingFees.stream()
+                    .map(ParkingFee::getSpaceNo).collect(Collectors.toSet());
+
             for (ParkingSpace sp : activeSpaces) {
                 try {
-                    ParkingFee existing = parkingFeeMapper.selectOne(
-                            new LambdaQueryWrapper<ParkingFee>()
-                                    .eq(ParkingFee::getSpaceNo, sp.getSpaceNo())
-                                    .eq(ParkingFee::getYear, year)
-                                    .eq(ParkingFee::getMonth, month));
-                    if (existing == null) {
+                    if (!existingSpaceNos.contains(sp.getSpaceNo())) {
                         BigDecimal amount = sp.getMonthlyFee() != null ? sp.getMonthlyFee() : BigDecimal.ZERO;
                         ParkingFee fee = new ParkingFee();
                         fee.setSpaceNo(sp.getSpaceNo());
-                        fee.setHouseholdId(sp.getHouseholdId());  // 冻结当前租户ID
-                        fee.setYear(year);
-                        fee.setMonth(month);
+                        fee.setHouseholdId(sp.getHouseholdId());
+                        fee.setYear(year); fee.setMonth(month);
                         fee.setAmount(amount);
                         fee.setIsPaid(0);
                         parkingFeeMapper.insert(fee);
@@ -127,40 +116,5 @@ public class FeeScheduler {
         }
 
         log.info("【定时任务】当月账单创建完成 — 物业费{}条, 停车费{}条", propCreated, parkCreated);
-    }
-
-    // ==================== 截止日次日：标记逾期 ====================
-
-    /**
-     * 每天凌晨2:00执行，检查今天是否为截止日次日，是则调用存储过程标记逾期
-     * <p>
-     * 为什么用每天 cron 而不是仅截止日次日？
-     * 因为截止日配置在 DB 中可变（1~28），无法用固定 cron 表达式表达"截止日+1天"。
-     * 方法内部有日期判断，非目标日直接返回，实际开销为零。
-     */
-    @Scheduled(cron = "0 0 2 * * ?")
-    public void markOverdueIfDeadlinePassed() {
-        int deadlineDay = deadlineConfig.getDeadlineDay();
-        int today = LocalDate.now().getDayOfMonth();
-
-        // 计算逾期标记日：截止日 + 1，若超出当月天数则回绕到1号
-        int overdueMarkDay = deadlineDay + 1;
-        int maxDay = LocalDate.now().lengthOfMonth();
-        if (overdueMarkDay > maxDay) {
-            overdueMarkDay = 1;
-        }
-
-        // 非目标日，跳过
-        if (today != overdueMarkDay) {
-            return;
-        }
-
-        log.info("【定时任务】截止日{}号已过，开始标记逾期...", deadlineDay);
-        try {
-            jdbcTemplate.update("CALL sp_mark_overdue(?)", deadlineDay);
-            log.info("【定时任务】逾期标记完成");
-        } catch (Exception e) {
-            log.error("【定时任务】标记逾期失败", e);
-        }
     }
 }

@@ -14,7 +14,7 @@ public class PropertyFee {
     private Integer year;
     private Integer month;
     private BigDecimal amount;
-    private Integer isPaid;       // 0=未缴, 1=已缴
+    private Integer isPaid;       // -1=逾期, 0=待缴, 1=已缴
     private LocalDate payDate;
     private String handler;
     private String billNo;

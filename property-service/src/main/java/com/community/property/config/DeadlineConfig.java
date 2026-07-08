@@ -21,8 +21,8 @@ public class DeadlineConfig {
     @Resource
     private JdbcTemplate jdbcTemplate;
 
-    /** 默认截止日（每月几号） */
-    private static final int DEFAULT_DEADLINE_DAY = 1;
+    /** 默认截止日（每月几号），设计文档规定默认 10 号 */
+    private static final int DEFAULT_DEADLINE_DAY = 10;
     private static final String CONFIG_KEY = "deadline_day";
 
     /**
@@ -43,6 +43,9 @@ public class DeadlineConfig {
      * 设置截止日（仅允许 1-28），若 key 不存在则插入
      */
     public void setDeadlineDay(int deadlineDay) {
+        if (deadlineDay < 1 || deadlineDay > 28) {
+            throw new IllegalArgumentException("截止日必须在 1-28 之间");
+        }
         int count = jdbcTemplate.update(
             "UPDATE system_config SET config_value = ? WHERE config_key = ?",
             String.valueOf(deadlineDay), CONFIG_KEY);
