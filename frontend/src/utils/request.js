@@ -2,10 +2,10 @@ import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import router from '../router'
 
-// 创建 axios 实例，配置基础路径
+// 直连 Gateway（Gateway 已配全局 CORS，不需要 Vite 代理）
 const request = axios.create({
-  baseURL: '/api',                    // 通过 Vite 代理转发到后端，解决跨域
-  timeout: 10000                       // 超时 10 秒
+  baseURL: 'http://127.0.0.1:8080',
+  timeout: 10000
 })
 
 // ==================== 请求拦截器 ====================

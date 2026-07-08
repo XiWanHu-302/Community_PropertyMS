@@ -9,15 +9,14 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import org.springframework.web.cors.CorsConfiguration;
-import org.springframework.web.cors.CorsConfigurationSource;
-import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import jakarta.annotation.Resource;
-import java.util.Arrays;
 
+/**
+ * CORS 统一由 Gateway 处理，本服务不再配置。
+ */
 @Configuration
-@EnableMethodSecurity   // 替代 @EnableGlobalMethodSecurity
+@EnableMethodSecurity
 public class SecurityConfig {
 
     @Resource
@@ -26,41 +25,18 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-            // 开启 CORS（property-service 被前端直接跨域调用）
-            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-
-            // 关闭 CSRF
             .csrf(csrf -> csrf.disable())
-
-            // 无状态会话
             .sessionManagement(session -> session
                 .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-
-            // 接口权限
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()   // OPTIONS 预检放行
+                .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers("/hello").permitAll()
-                .requestMatchers("/feign-test").permitAll()          // Feign 降级测试接口
-                .requestMatchers("/property-fee/unpaid-raw/*").permitAll()   // 供 user-service 内部调用（搬离检查）
-                .requestMatchers("/property-fee/generate").permitAll()      // 供 user-service 内部调用（入住生成账单）
+                .requestMatchers("/feign-test").permitAll()
+                .requestMatchers("/property-fee/unpaid-raw/*").permitAll()
+                .requestMatchers("/property-fee/generate").permitAll()
                 .anyRequest().authenticated()
             )
-
-            // JWT 过滤器
             .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
-
         return http.build();
-    }
-
-    @Bean
-    public CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOriginPatterns(Arrays.asList("*"));
-        config.setAllowedMethods(Arrays.asList("*"));
-        config.setAllowedHeaders(Arrays.asList("*"));
-        config.setAllowCredentials(true);
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", config);
-        return source;
     }
 }

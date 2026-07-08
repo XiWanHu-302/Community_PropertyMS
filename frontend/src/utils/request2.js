@@ -2,9 +2,9 @@ import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import router from '../router'
 
-/** property-service 直连（CORS 已开启，不依赖 Vite 代理） */
+/** 直连网关（Gateway 已配全局 CORS，不需要代理） */
 const request2 = axios.create({
-  baseURL: 'http://127.0.0.1:8082',
+  baseURL: 'http://127.0.0.1:8080',
   timeout: 10000
 })
 
