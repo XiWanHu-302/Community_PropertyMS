@@ -34,6 +34,23 @@
             maxlength="500" show-word-limit />
         </el-form-item>
 
+        <el-form-item label="现场照片">
+          <el-upload
+            ref="uploadRef"
+            :auto-upload="false"
+            list-type="picture-card"
+            v-model:file-list="fileList"
+            :before-upload="beforeUpload"
+            :limit="6"
+            multiple
+            accept="image/*">
+            <el-icon><Plus /></el-icon>
+            <template #tip>
+              <div style="font-size:12px;color:#909399">可上传jpg/png，单张不超过5MB，最多6张</div>
+            </template>
+          </el-upload>
+        </el-form-item>
+
         <el-form-item>
           <el-button type="primary" :loading="submitting" @click="handleSubmit" :disabled="!hasHousehold">
             {{ hasHousehold ? '提交报修' : '未关联住户信息' }}
@@ -66,15 +83,35 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { Plus } from '@element-plus/icons-vue'
 import { addRepair, myRepairs } from '../../api/repair'
+import request from '../../utils/request'
 
 const router = useRouter()
 const formRef = ref(null)
+const uploadRef = ref(null)
 const submitting = ref(false)
 const submitSuccess = ref(false)
 const hasHousehold = ref(true)
 const loadError = ref(false)
 const lastRepair = ref(null)
+const fileList = ref([])
+
+const beforeUpload = (file) => {
+  const isImage = file.type.startsWith('image/')
+  const isLt5M = file.size / 1024 / 1024 < 5
+  if (!isImage) { ElMessage.error('只能上传图片文件'); return false }
+  if (!isLt5M) { ElMessage.error('图片大小不能超过5MB'); return false }
+  return true
+}
+
+/** 上传单张图片 */
+const uploadSingle = async (file, repairId) => {
+  const fd = new FormData()
+  fd.append('files', file.raw)
+  // 不手动设 Content-Type，让浏览器自动带 boundary
+  return request.post(`/file/upload?relatedType=repair&relatedId=${repairId}`, fd)
+}
 
 const form = reactive({
   repairType: '',
@@ -99,19 +136,27 @@ const buildContent = () => {
 
 const handleSubmit = async () => {
   if (!formRef.value) return
-  try {
-    await formRef.value.validate()
-  } catch { return }
+  try { await formRef.value.validate() } catch { return }
 
   submitting.value = true
   try {
+    // 1. 创建报修
     const content = buildContent()
-    await addRepair({ content })
+    const res = await addRepair({ content })
+    const repairId = res.data?.repairId
     ElMessage.success('报修提交成功')
+
+    // 2. 上传图片（关联到刚创建的报修）
+    console.log('=== 上传调试 === repairId:', repairId, 'fileList:', fileList.value)
+    if (repairId && fileList.value.length > 0) {
+      for (const f of fileList.value) {
+        try { await uploadSingle(f, repairId); console.log('上传成功:', f.name) } catch (e) { console.error('上传失败:', f.name, e) }
+      }
+      ElMessage.success('图片上传完成')
+    }
     submitSuccess.value = true
     loadLastRepair()
   } catch {
-    // 错误已由拦截器处理
     hasHousehold.value = false
   } finally {
     submitting.value = false

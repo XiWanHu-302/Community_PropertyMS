@@ -10,7 +10,10 @@ import com.community.property.feign.UserServiceFeignClient;
 import com.community.property.mapper.ParkingFeeMapper;
 import com.community.property.mapper.ParkingSpaceMapper;
 import com.community.property.config.DeadlineConfig;
+import com.community.property.config.RedisLockUtil;
 import com.community.property.security.JwtUtil;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -33,12 +36,14 @@ public class ParkingSpaceController {
     @Resource private JwtUtil jwtUtil;                          // JWT 工具（解析 refId/role）
     @Resource private HttpServletRequest request;               // 获取请求头中的 Token
     @Resource private DeadlineConfig deadlineConfig;            // 截止日配置
+    @Resource private RedisLockUtil redisLockUtil;             // Redis 分布式锁
 
     /** 车位编号格式：字母 + 3位数字（如 A001） */
     private static final String SPACE_NO_PATTERN = "^[A-Z]\\d{3}$";
 
     @GetMapping("/list")
     @PreAuthorize("hasAnyRole('ADMIN','RESIDENT','MAINTENANCE')")
+    @Cacheable(value = "parkingSpaceList")
     public Result<List<Map<String, Object>>> list() {
         List<ParkingSpace> spaces = spaceMapper.selectList(null);
         List<Map<String, Object>> vos = new ArrayList<>();
@@ -67,6 +72,7 @@ public class ParkingSpaceController {
     /** 新增车位（校验编号格式） */
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
+    @CacheEvict(value = "parkingSpaceList", allEntries = true)
     public Result<Void> add(@RequestBody ParkingSpace s) {
         if (!StringUtils.hasText(s.getSpaceNo()) || !s.getSpaceNo().matches(SPACE_NO_PATTERN))
             return Result.fail("车位编号格式不正确，请输入如 A001（字母+3位数字）");
@@ -80,6 +86,7 @@ public class ParkingSpaceController {
     @PutMapping
     @PreAuthorize("hasRole('ADMIN')")
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "parkingSpaceList", allEntries = true)
     public Result<Void> update(@RequestBody ParkingSpace s) {
         ParkingSpace db = spaceMapper.selectById(s.getSpaceNo());
         if (db == null) return Result.fail("车位不存在");
@@ -96,6 +103,7 @@ public class ParkingSpaceController {
     /** 删除车位 — 检查是否有未缴停车费 */
     @DeleteMapping("/{spaceNo}")
     @PreAuthorize("hasRole('ADMIN')")
+    @CacheEvict(value = "parkingSpaceList", allEntries = true)
     public Result<Void> delete(@PathVariable String spaceNo) {
         ParkingSpace s = spaceMapper.selectById(spaceNo);
         if (s == null) return Result.fail("车位不存在");
@@ -131,13 +139,20 @@ public class ParkingSpaceController {
         return Result.ok(data);
     }
 
-    /** 分配车位给住户（管理员+业主自助） */
+    /** 分配车位给住户（管理员+业主自助）—— 加 Redis 分布式锁防并发抢位 */
     @PutMapping("/{spaceNo}/assign/{householdId}")
     @PreAuthorize("hasAnyRole('ADMIN','RESIDENT')")
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "parkingSpaceList", allEntries = true)
     public Result<Void> assign(@PathVariable String spaceNo, @PathVariable Integer householdId,
                                @RequestParam(required = false) String plateNo) {
-        // 安全校验：业主只能给自己分配车位
+        // 分布式锁：防止两人同时分配同一车位
+        String lockKey = "lock:parking:assign:" + spaceNo;
+        if (!redisLockUtil.tryLock(lockKey, java.time.Duration.ofSeconds(10))) {
+            return Result.fail("该车位正在被操作，请稍后重试");
+        }
+        try {
+            // 安全校验：业主只能给自己分配车位
         String token = request.getHeader("Authorization");
         if (token != null && token.startsWith("Bearer ")) token = token.substring(7);
         String role = jwtUtil.getRoleFromToken(token);
@@ -176,12 +191,16 @@ public class ParkingSpaceController {
             feeMapper.insert(newFee);
         }
         return Result.ok("租用成功");
+        } finally {
+            redisLockUtil.unlock(lockKey);
+        }
     }
 
     /** 释放车位 — 检查未缴费用、写入历史记录、清空分配信息（管理员+业主自助） */
     @PutMapping("/{spaceNo}/release")
     @PreAuthorize("hasAnyRole('ADMIN','RESIDENT')")
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "parkingSpaceList", allEntries = true)
     public Result<Void> release(@PathVariable String spaceNo) {
         ParkingSpace s = spaceMapper.selectById(spaceNo);
         if (s == null) return Result.fail("车位不存在");

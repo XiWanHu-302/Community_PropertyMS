@@ -120,6 +120,19 @@
           <template v-else>—</template>
         </el-form-item>
       </el-form>
+      <!-- 现场照片 -->
+      <div v-if="detailImages.length > 0" style="margin-top:12px">
+        <div style="font-weight:600;margin-bottom:8px;font-size:14px">现场照片（{{ detailImages.length }}张）</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <el-image
+            v-for="img in detailImages" :key="img.id"
+            :src="'http://127.0.0.1:8080/file/preview/' + img.id"
+            :preview-src-list="detailImages.map(i => 'http://127.0.0.1:8080/file/preview/' + i.id)"
+            style="width:120px;height:120px;border-radius:4px;object-fit:cover"
+            fit="cover"
+          />
+        </div>
+      </div>
       <template #footer>
         <el-button @click="detailVisible = false">关闭</el-button>
       </template>
@@ -149,6 +162,7 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { listRepairs, getRepairStats, getStaffList, assignRepair, cancelRepair } from '../../api/repair'
+import request from '../../utils/request'
 
 const loading = ref(false)
 const loadError = ref(false)
@@ -203,9 +217,16 @@ const statusTagType = (status) => {
 const detailVisible = ref(false)
 const detail = reactive({})
 
-const openDetail = (row) => {
+const detailImages = ref([])
+const openDetail = async (row) => {
   Object.assign(detail, row)
   detailVisible.value = true
+  // 加载附件图片
+  detailImages.value = []
+  try {
+    const res = await request.get(`/file/list?relatedType=repair&relatedId=${row.repairId}`)
+    detailImages.value = (res.data || []).filter(a => a.contentType && a.contentType.startsWith('image/'))
+  } catch {}
 }
 
 // 分配弹窗

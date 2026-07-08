@@ -47,6 +47,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers("/auth/login").permitAll()
                 .requestMatchers("/hello").permitAll()
+                .requestMatchers("/file/preview/**").permitAll()  // 文件预览无需认证
                 // 内部接口：供 property-service 通过 OpenFeign 调用
                 .requestMatchers("/household/active").permitAll()
                 .requestMatchers("/household/active-raw").permitAll()

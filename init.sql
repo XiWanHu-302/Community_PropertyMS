@@ -188,6 +188,23 @@ CREATE TABLE repair (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='维修信息表';
 
 -- --------------------------------------
+-- 2.8 文件附件表（报修图片等）
+-- --------------------------------------
+CREATE TABLE attachment (
+  id            BIGINT         AUTO_INCREMENT,
+  related_type  VARCHAR(20)    NOT NULL COMMENT '关联类型（如 repair）',
+  related_id    INT            NOT NULL COMMENT '关联记录ID',
+  file_name     VARCHAR(100)   NOT NULL COMMENT '存储文件名（UUID）',
+  original_name VARCHAR(200)   NOT NULL COMMENT '原始文件名',
+  file_path     VARCHAR(500)   NOT NULL COMMENT '存储相对路径',
+  file_size     BIGINT         NOT NULL COMMENT '文件大小（字节）',
+  content_type  VARCHAR(100)   COMMENT 'MIME类型',
+  create_time   DATETIME       DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_attachment_related (related_type, related_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文件附件表';
+
+-- --------------------------------------
 -- 2.9 系统配置表（持久化截止日等运行时配置）
 -- --------------------------------------
 CREATE TABLE IF NOT EXISTS system_config (

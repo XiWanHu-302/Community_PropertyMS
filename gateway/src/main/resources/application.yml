@@ -33,7 +33,7 @@ spring:
         - id: user-service
           uri: lb://user-service
           predicates:
-            - Path=/auth/**,/household/**,/building/**,/repair/**,/maintenance-staff/**,/dashboard/**
+            - Path=/auth/**,/household/**,/building/**,/repair/**,/staff/**,/dashboard/**,/file/**
 
         # ---- property-service ----
         - id: property-service

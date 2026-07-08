@@ -11,6 +11,8 @@ import com.community.property.mapper.ParkingSpaceMapper;
 import com.community.property.mapper.PropertyFeeMapper;
 import com.community.property.service.FeePaymentHelper.PaymentRange;
 import jakarta.annotation.Resource;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -86,7 +88,8 @@ public class PropertyFeeService {
 
     // ==================== 月报表 ====================
 
-    /** 直接从数据库查询，不补建 */
+    /** 直接从数据库查询，不补建 —— 结果缓存 10 分钟 */
+    @Cacheable(value = "propertyFeeReport", key = "#year + '-' + #month + '-' + #statusFilter")
     public List<Map<String, Object>> report(Integer year, Integer month, String statusFilter) {
         List<HouseholdDTO> households = userFeignClient.getAllHouseholds();
         if (households == null || households.isEmpty()) return Collections.emptyList();
@@ -333,6 +336,7 @@ public class PropertyFeeService {
      * 2. 缴费范围内缺少的未来月份（>当前月）→ 创建并标记已缴（预缴）
      * 3. 所有未缴已清时，从下个月开始纯预缴
      */
+    @CacheEvict(value = "propertyFeeReport", allEntries = true)
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> pay(Integer householdId, Integer duration, String handler) {
         List<PropertyFee> unpaid = feeMapper.selectList(new LambdaQueryWrapper<PropertyFee>()
@@ -449,6 +453,7 @@ public class PropertyFeeService {
 
     // ==================== 入住时生成当月账单 ====================
 
+    @CacheEvict(value = "propertyFeeReport", allEntries = true)
     @Transactional(rollbackFor = Exception.class)
     public void generateBill(Integer householdId) {
         HouseholdDTO h = userFeignClient.getBriefById(householdId);
