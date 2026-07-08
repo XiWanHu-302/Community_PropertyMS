@@ -25,18 +25,21 @@
                     <el-option label="逾期" value="逾期" />
                   </el-select>
                 </el-form-item>
+                <el-form-item label="搜索住号">
+                  <el-input v-model="searchRoom" placeholder="如 28 或 28-1301" style="width:160px" clearable />
+                </el-form-item>
               </el-form>
             </div>
             <div>
               <span class="page-card-total">
-                共 {{ report.length }} 户 |
-                已缴 <b style="color:#67C23A">{{ report.filter(r=>r.statusText==='已缴').length }}</b> |
-                待缴 <b style="color:#E6A23C">{{ report.filter(r=>r.statusText==='待缴').length }}</b> |
-                逾期 <b style="color:#F56C6C">{{ report.filter(r=>r.statusText==='逾期').length }}</b>
+                共 {{ filteredReport.length }} 户 |
+                已缴 <b style="color:#67C23A">{{ filteredReport.filter(r=>r.statusText==='已缴').length }}</b> |
+                待缴 <b style="color:#E6A23C">{{ filteredReport.filter(r=>r.statusText==='待缴').length }}</b> |
+                逾期 <b style="color:#F56C6C">{{ filteredReport.filter(r=>r.statusText==='逾期').length }}</b>
               </span>
             </div>
           </div>
-          <el-table :data="report" border stripe v-loading="loading" style="margin-top:10px">
+          <el-table :data="filteredReport" border stripe v-loading="loading" style="margin-top:10px">
             <el-table-column prop="room" label="住号" width="110" />
             <el-table-column prop="ownerName" label="户主" width="100" />
             <el-table-column prop="amount" label="应缴金额" width="110" />
@@ -85,7 +88,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request2 from '../../utils/request2'
 
@@ -95,6 +98,14 @@ const year = ref(now.getFullYear()), month = ref(now.getMonth() + 1)
 const years = Array.from({length:5}, (_,i) => now.getFullYear() - 2 + i)
 const report = ref([]), loading = ref(false)
 const statusFilter = ref('全部')
+const searchRoom = ref('')
+
+// 前端按住号过滤
+const filteredReport = computed(() => {
+  if (!searchRoom.value) return report.value
+  const kw = searchRoom.value.trim()
+  return report.value.filter(r => r.room && r.room.includes(kw))
+})
 const deadlineDay = ref(1)
 const savedDeadlineDay = ref(1)   // 已保存的值，用于对比是否修改
 

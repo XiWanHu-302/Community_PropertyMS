@@ -58,6 +58,9 @@
                     <el-option label="逾期" value="逾期" />
                   </el-select>
                 </el-form-item>
+                <el-form-item label="搜索住号">
+                  <el-input v-model="feeSearchRoom" placeholder="如 28 或 28-1301" style="width:160px" clearable />
+                </el-form-item>
               </el-form>
             </div>
             <div>
@@ -70,9 +73,10 @@
               </span>
             </div>
           </div>
-          <el-table :data="feeSummary.details" border stripe v-loading="feeLoading" style="margin-top:10px">
+          <el-table :data="filteredFeeDetails" border stripe v-loading="feeLoading" style="margin-top:10px">
             <el-table-column prop="spaceNo" label="车位编号" width="100" />
             <el-table-column prop="plateNo" label="车牌号" width="120" />
+            <el-table-column prop="room" label="住号" width="110" />
             <el-table-column prop="ownerName" label="户主" width="90" />
             <el-table-column prop="amount" label="应缴金额" width="110" />
             <el-table-column label="状态" width="80">
@@ -151,7 +155,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import request2 from '../../utils/request2'
@@ -217,8 +221,16 @@ const handleDelete = async (row) => {
 const now = new Date()
 const feeYear = ref(now.getFullYear()), feeMonth = ref(now.getMonth() + 1)
 const feeStatusFilter = ref('全部')
+const feeSearchRoom = ref('')
 const feeLoading = ref(false)
 const feeSummary = reactive({ totalSpaces:0, paidCount:0, pendingCount:0, overdueCount:0, totalReceivable:0, totalCollected:0, totalOutstanding:0, details:[] })
+
+// 前端按住号过滤停车费
+const filteredFeeDetails = computed(() => {
+  if (!feeSearchRoom.value) return feeSummary.details
+  const kw = feeSearchRoom.value.trim()
+  return feeSummary.details.filter(r => r.room && r.room.includes(kw))
+})
 
 const loadFeeSummary = async () => {
   feeLoading.value = true

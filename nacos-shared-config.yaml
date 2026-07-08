@@ -1,0 +1,46 @@
+# ============================================================
+# Nacos 共享配置 — community-property.yaml
+# 两个微服务共用，修改后自动刷新，无需重启
+# ============================================================
+
+# ---- JWT ----
+jwt:
+  secret: community-property-ms-secret-key-2026
+  expiration: 86400000
+
+# ---- 数据源（两个服务共用同一数据库） ----
+spring:
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+        namespace: public
+        username: nacos
+        password: nacos
+        fail-fast: false
+    openfeign:
+      circuitbreaker:
+        enabled: true
+  datasource:
+    url: jdbc:mysql://localhost:3306/community_property?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai&characterEncoding=utf8
+    username: root
+    password: 123
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    type: com.alibaba.druid.pool.DruidDataSource
+
+# ---- MyBatis-Plus ----
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+# ---- Resilience4j 断路器 ----
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        sliding-window-size: 2
+        minimum-number-of-calls: 1
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        automatic-transition-from-open-to-half-open-enabled: true
