@@ -19,4 +19,17 @@
     <name>common</name>
     <description>公共模块</description>
 
+    <dependencies>
+        <!-- JWT 解析（jjwt-api） -->
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-api</artifactId>
+        </dependency>
+        <!-- Spring 依赖注入（@Component, @Value） -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-context</artifactId>
+        </dependency>
+    </dependencies>
+
 </project>

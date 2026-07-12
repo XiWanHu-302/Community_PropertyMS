@@ -10,6 +10,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
+import com.community.common.JwtUtil;
 import jakarta.annotation.Resource;
 
 /**
@@ -28,11 +29,11 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
         String token = getToken(exchange.getRequest());
         if (StringUtils.hasText(token) && !jwtUtil.isTokenExpired(token)) {
             try {
-                io.jsonwebtoken.Claims claims = jwtUtil.parseToken(token);
                 ServerHttpRequest mutated = exchange.getRequest().mutate()
-                        .header("X-User-Id", String.valueOf(claims.get("userId", Integer.class)))
-                        .header("X-User-Role", claims.get("role", String.class))
-                        .header("X-Username", claims.getSubject())
+                        .header("X-User-Id", String.valueOf(jwtUtil.getUserIdFromToken(token)))
+                        .header("X-User-Role", jwtUtil.getRoleFromToken(token))
+                        .header("X-Username", jwtUtil.getUsernameFromToken(token))
+                        .header("X-User-RefId", jwtUtil.getRefIdFromToken(token))
                         .build();
                 return chain.filter(exchange.mutate().request(mutated).build());
             } catch (Exception ignored) {

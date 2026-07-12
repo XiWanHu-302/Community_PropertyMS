@@ -19,14 +19,13 @@ import java.io.IOException;
 import java.util.Collections;
 
 /**
- * JWT 认证过滤器 —— 每个请求进来时，从 Header 中提取 Token 并解析用户身份
- * OncePerRequestFilter 保证每个请求只经过一次此过滤器
+ * 认证过滤器 —— 读取 Gateway 透传的 X-Username 头，查库验证用户身份
+ * <p>
+ * Gateway 已完成 JWT 解析，通过 Header 传递用户信息。
+ * 本 Filter 不再解析 JWT，只根据用户名查库确认用户存在且启用。
  */
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
-
-    @Resource
-    private JwtUtil jwtUtil;
 
     @Resource
     private UserMapper userMapper;
@@ -36,14 +35,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
 
-        // 1. 从请求头中获取 Token
-        String token = getTokenFromRequest(request);
+        // 1. 从 Gateway 透传的 Header 中获取用户名
+        String username = request.getHeader("X-Username");
 
-        // 2. 如果有 Token 且未过期，解析并设置认证信息
-        if (StringUtils.hasText(token) && !jwtUtil.isTokenExpired(token)) {
-            String username = jwtUtil.getUsernameFromToken(token);
-
-            // 从数据库查用户（确保用户仍然存在且启用）
+        // 2. 如果有用户名，查数据库确认用户存在且启用
+        if (StringUtils.hasText(username)) {
             User user = userMapper.selectOne(
                     new LambdaQueryWrapper<User>()
                             .eq(User::getUsername, username)
@@ -53,11 +49,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             if (user != null) {
                 String roleName = "ROLE_" + user.getRole().toUpperCase();
 
-                // 构建认证令牌，存入 SecurityContext
                 UsernamePasswordAuthenticationToken authentication =
                         new UsernamePasswordAuthenticationToken(
-                                user,                          // principal（用户信息）
-                                null,                          // credentials（密码，Token 模式下不需要）
+                                user,                          // principal（完整 User 实体）
+                                null,                          // credentials
                                 Collections.singletonList(
                                         new SimpleGrantedAuthority(roleName))
                         );
@@ -65,19 +60,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             }
         }
 
-        // 3. 放行，继续下一个过滤器
+        // 3. 放行
         filterChain.doFilter(request, response);
-    }
-
-    /**
-     * 从请求头 Authorization 中提取 Token
-     * 格式：Bearer xxxxx.yyyyy.zzzzz
-     */
-    private String getTokenFromRequest(HttpServletRequest request) {
-        String bearerToken = request.getHeader("Authorization");
-        if (StringUtils.hasText(bearerToken) && bearerToken.startsWith("Bearer ")) {
-            return bearerToken.substring(7);   // 去掉 "Bearer " 前缀
-        }
-        return null;
     }
 }

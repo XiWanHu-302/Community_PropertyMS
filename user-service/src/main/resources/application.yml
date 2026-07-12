@@ -10,6 +10,6 @@ spring:
       max-file-size: 10MB
       max-request-size: 50MB
 
-# 文件上传本地存储（绝对路径，user-service 模块下的 uploads 目录）
+# 文件上传本地存储
 file:
-  upload-dir: E:/code/JavaEE/Community_PropertyMS/user-service/uploads
+  upload-dir: E:/code/JavaEE/Community_PropertyMS/uploads

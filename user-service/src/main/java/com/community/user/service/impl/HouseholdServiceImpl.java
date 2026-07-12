@@ -83,7 +83,7 @@ public class HouseholdServiceImpl
             throw new RuntimeException(String.format(
                     "%s 楼每层只有 %d 户，户号 %d 超出范围", building.getBuildingNo(), building.getUnitsPerFloor(), unitNo));
         }
-        // 只检查在住状态的住户是否重复（已搬离的允许同房间新登记）
+        // 只检查在住状态的住户是否重复（已搬离的允许同房间新登记），可用excludeHouseholdId排除自己
         LambdaQueryWrapper<Household> wrapper = new LambdaQueryWrapper<Household>()
                 .eq(Household::getBuildingNo, building.getBuildingNo())
                 .eq(Household::getFloorNo, floorNo)

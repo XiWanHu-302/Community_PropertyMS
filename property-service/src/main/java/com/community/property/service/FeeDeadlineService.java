@@ -2,6 +2,7 @@ package com.community.property.service;
 
 import com.community.property.config.DeadlineConfig;
 import jakarta.annotation.Resource;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -36,6 +37,7 @@ public class FeeDeadlineService {
      * 设置截止日（含校验和状态刷新）
      * @throws IllegalArgumentException 如果不在 1-28 范围内
      */
+    @CacheEvict(value = "propertyFeeReport", allEntries = true)
     public void setDeadlineDay(int day) {
         if (day < 1 || day > 28) {
             throw new IllegalArgumentException("截止日必须在 1-28 之间");

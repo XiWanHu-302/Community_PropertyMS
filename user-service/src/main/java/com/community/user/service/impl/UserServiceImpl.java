@@ -9,7 +9,7 @@ import com.community.user.entity.User;
 import com.community.user.mapper.HouseholdMapper;
 import com.community.user.mapper.MaintenanceStaffMapper;
 import com.community.user.mapper.UserMapper;
-import com.community.user.security.JwtUtil;
+import com.community.user.security.TokenProvider;
 import com.community.user.service.UserService;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -25,7 +25,7 @@ public class UserServiceImpl implements UserService {
     @Resource private HouseholdMapper householdMapper;
     @Resource private MaintenanceStaffMapper staffMapper;
     @Resource private AuthenticationManager authenticationManager;
-    @Resource private JwtUtil jwtUtil;
+    @Resource private TokenProvider tokenProvider;
 
     @Override
     public LoginResponse login(LoginRequest request) {
@@ -43,7 +43,7 @@ public class UserServiceImpl implements UserService {
             MaintenanceStaff s = staffMapper.selectById(user.getRefId());
             if (s != null) realName = s.getRealName();
         }
-        String token = jwtUtil.generateToken(user.getUserId(), user.getUsername(), user.getRole(), user.getRefId());
+        String token = tokenProvider.generateToken(user.getUserId(), user.getUsername(), user.getRole(), user.getRefId());
         return new LoginResponse(token, user.getRole(), realName);
     }
 }

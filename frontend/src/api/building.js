@@ -19,3 +19,8 @@ export function updateBuilding(data) {
 export function deleteBuilding(buildingNo) {
   return request.delete(`/building/${buildingNo}`)
 }
+
+/** 批量删除楼栋 */
+export function deleteBatchBuilding(buildingNos) {
+  return request.post('/building/batch-delete', { buildingNos })
+}

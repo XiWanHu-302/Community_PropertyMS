@@ -1,4 +1,4 @@
-package com.community.property.security;
+package com.community.common;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
@@ -11,8 +11,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.Date;
 
 /**
- * JWT 工具类（property-service 仅解析 Token，不生成 Token）
- * 基于 jjwt 0.12.x API
+ * JWT 工具类（公共模块）—— Token 解析与校验
+ * 所有微服务共用，只有 user-service 额外负责 Token 签发（见 TokenProvider）
  */
 @Component
 public class JwtUtil {
@@ -24,13 +24,10 @@ public class JwtUtil {
     private Long expiration;
 
     private SecretKey getSigningKey() {
-        byte[] keyBytes = secret.getBytes(StandardCharsets.UTF_8);
-        return Keys.hmacShaKeyFor(keyBytes);
+        return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
 
-    /**
-     * 解析 Token 中的 Claims
-     */
+    /** 解析 Token 中的 Claims */
     public Claims parseToken(String token) {
         return Jwts.parser()
                 .verifyWith(getSigningKey())
@@ -39,9 +36,7 @@ public class JwtUtil {
                 .getPayload();
     }
 
-    /**
-     * 校验 Token 是否过期
-     */
+    /** 校验 Token 是否过期（true=未过期） */
     public boolean isTokenExpired(String token) {
         try {
             return parseToken(token).getExpiration().before(new Date());
@@ -50,23 +45,22 @@ public class JwtUtil {
         }
     }
 
-    /**
-     * 从 Token 中获取用户名
-     */
+    /** 从 Token 中获取 userId */
+    public Integer getUserIdFromToken(String token) {
+        return parseToken(token).get("userId", Integer.class);
+    }
+
+    /** 从 Token 中获取用户名 */
     public String getUsernameFromToken(String token) {
         return parseToken(token).getSubject();
     }
 
-    /**
-     * 从 Token 中获取角色
-     */
+    /** 从 Token 中获取角色 */
     public String getRoleFromToken(String token) {
         return parseToken(token).get("role", String.class);
     }
 
-    /**
-     * 从 Token 中获取 refId（住户为 householdId，维修员为 workerNo）
-     */
+    /** 从 Token 中获取 refId（业主为 householdId，维修员为 workerNo） */
     public String getRefIdFromToken(String token) {
         return parseToken(token).get("refId", String.class);
     }

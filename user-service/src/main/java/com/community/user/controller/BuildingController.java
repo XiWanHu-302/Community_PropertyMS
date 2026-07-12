@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.*;
 import jakarta.annotation.Resource;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 楼栋管理控制器 —— 仅管理员可操作
@@ -103,5 +104,40 @@ public class BuildingController {
         }
         buildingService.removeById(buildingNo);
         return Result.ok("楼栋删除成功");
+    }
+
+    /**
+     * 批量删除楼栋
+     * POST /building/batch-delete
+     * Body: { "buildingNos": ["28", "29"] }
+     */
+    @PostMapping("/batch-delete")
+    @PreAuthorize("hasRole('ADMIN')")
+    public Result<Void> deleteBatch(@RequestBody Map<String, List<String>> body) {
+        List<String> buildingNos = body.get("buildingNos");
+        if (buildingNos == null || buildingNos.isEmpty()) {
+            return Result.fail("请选择要删除的楼栋");
+        }
+        // 逐栋检查，有住户的楼栋跳过并记录
+        StringBuilder blocked = new StringBuilder();
+        int deleted = 0;
+        for (String no : buildingNos) {
+            Long count = householdMapper.selectCount(
+                    new LambdaQueryWrapper<Household>()
+                            .eq(Household::getBuildingNo, no)
+            );
+            if (count > 0) {
+                if (blocked.length() > 0) blocked.append("、");
+                blocked.append(no).append("号楼(").append(count).append("户)");
+            } else {
+                buildingService.removeById(no);
+                deleted++;
+            }
+        }
+        String msg = "成功删除 " + deleted + " 栋楼";
+        if (blocked.length() > 0) {
+            msg += "，" + blocked + " 因有关联住户被跳过";
+        }
+        return Result.ok(msg);
     }
 }

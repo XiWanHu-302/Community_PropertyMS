@@ -11,7 +11,6 @@ import com.community.property.mapper.ParkingFeeMapper;
 import com.community.property.mapper.ParkingSpaceMapper;
 import com.community.property.config.DeadlineConfig;
 import com.community.property.config.RedisLockUtil;
-import com.community.property.security.JwtUtil;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -33,8 +32,7 @@ public class ParkingSpaceController {
     @Resource private ParkingSpaceMapper spaceMapper;
     @Resource private ParkingFeeMapper feeMapper;
     @Resource private UserServiceFeignClient userFeignClient;
-    @Resource private JwtUtil jwtUtil;                          // JWT 工具（解析 refId/role）
-    @Resource private HttpServletRequest request;               // 获取请求头中的 Token
+    @Resource private HttpServletRequest request;               // 获取 Gateway 透传的 Header
     @Resource private DeadlineConfig deadlineConfig;            // 截止日配置
     @Resource private RedisLockUtil redisLockUtil;             // Redis 分布式锁
 
@@ -153,11 +151,9 @@ public class ParkingSpaceController {
         }
         try {
             // 安全校验：业主只能给自己分配车位
-        String token = request.getHeader("Authorization");
-        if (token != null && token.startsWith("Bearer ")) token = token.substring(7);
-        String role = jwtUtil.getRoleFromToken(token);
+        String role = request.getHeader("X-User-Role");
         if ("resident".equalsIgnoreCase(role)) {
-            String refId = jwtUtil.getRefIdFromToken(token);
+            String refId = request.getHeader("X-User-RefId");
             if (refId == null || !refId.equals(String.valueOf(householdId))) {
                 return Result.fail("只能为自己分配车位");
             }
@@ -207,11 +203,9 @@ public class ParkingSpaceController {
         if (s.getHouseholdId() == null) return Result.fail("该车位当前为空闲状态，无需释放");
 
         // 安全校验：业主只能释放自己的车位
-        String token = request.getHeader("Authorization");
-        if (token != null && token.startsWith("Bearer ")) token = token.substring(7);
-        String role = jwtUtil.getRoleFromToken(token);
+        String role = request.getHeader("X-User-Role");
         if ("resident".equalsIgnoreCase(role)) {
-            String refId = jwtUtil.getRefIdFromToken(token);
+            String refId = request.getHeader("X-User-RefId");
             if (refId == null || !refId.equals(String.valueOf(s.getHouseholdId()))) {
                 return Result.fail("只能释放自己的车位");
             }

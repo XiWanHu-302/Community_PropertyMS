@@ -5,6 +5,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 import org.springframework.cloud.openfeign.EnableFeignClients;
+import org.springframework.context.annotation.ComponentScan;
 
 /**
  * 用户服务启动类
@@ -15,6 +16,7 @@ import org.springframework.cloud.openfeign.EnableFeignClients;
  * @MapperScan            扫描 MyBatis Mapper 接口
  */
 @SpringBootApplication
+@ComponentScan("com.community")   // 扫描 common 模块的 Bean（JwtUtil 等）
 @EnableDiscoveryClient
 @EnableFeignClients
 @MapperScan("com.community.user.mapper")

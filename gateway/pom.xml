@@ -15,6 +15,12 @@
     <description>API 网关 — 统一入口、JWT 鉴权、路由转发</description>
 
     <dependencies>
+        <!-- 公共模块（JwtUtil） -->
+        <dependency>
+            <groupId>com.community</groupId>
+            <artifactId>common</artifactId>
+            <version>1.0.0</version>
+        </dependency>
         <!-- Spring Cloud Gateway（Reactive，不依赖 spring-boot-starter-web） -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>

@@ -1,12 +1,19 @@
-<template>
+·-<template>
   <div class="page">
     <!-- 表格 -->
     <el-card>
       <div class="page-card-header">
         <el-button type="primary" :icon="Plus" @click="openAdd">新增楼栋</el-button>
+        <el-button type="danger" :disabled="selectedRows.length === 0" @click="handleBatchDelete">
+          批量删除（{{ selectedRows.length }}）
+        </el-button>
         <span class="page-card-total">共 {{ tableData.length }} 栋楼</span>
       </div>
-      <el-table :data="tableData" border stripe v-loading="loading" style="margin-top: 10px">
+      <el-table
+        :data="tableData" border stripe v-loading="loading" style="margin-top: 10px"
+        @selection-change="handleSelectionChange"
+      >
+        <el-table-column type="selection" width="50" />
         <el-table-column prop="buildingNo" label="楼号" width="100" />
         <el-table-column prop="floorCount" label="总层数" width="100" />
         <el-table-column prop="unitsPerFloor" label="每层户数" width="120" />
@@ -58,11 +65,16 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
-import { getBuildingList, addBuilding, updateBuilding, deleteBuilding } from '../../api/building'
+import { getBuildingList, addBuilding, updateBuilding, deleteBuilding, deleteBatchBuilding } from '../../api/building'
 
 // ========== 表格数据 ==========
 const tableData = ref([])
 const loading = ref(false)
+const selectedRows = ref([])
+
+const handleSelectionChange = (rows) => {
+  selectedRows.value = rows
+}
 
 const loadData = async () => {
   loading.value = true
@@ -150,6 +162,20 @@ const handleDelete = async (row) => {
   )
   await deleteBuilding(row.buildingNo)
   ElMessage.success('删除成功')
+  loadData()
+}
+
+// 批量删除
+const handleBatchDelete = async () => {
+  const nos = selectedRows.value.map(r => r.buildingNo)
+  await ElMessageBox.confirm(
+    `确定删除以下 ${nos.length} 栋楼吗？\n${nos.join('、')}`,
+    '批量删除确认',
+    { type: 'warning' }
+  )
+  const res = await deleteBatchBuilding(nos)
+  ElMessage.success(res.message)
+  selectedRows.value = []
   loadData()
 }
 
