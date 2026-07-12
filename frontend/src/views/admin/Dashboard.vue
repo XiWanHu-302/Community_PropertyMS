@@ -121,7 +121,7 @@
     <div class="dashboard-footer">
       <span>小区物业管理系统 v1.0</span>
       <span style="margin:0 12px;color:#dcdfe6">|</span>
-      <span>服务热线：400-888-8888</span>
+      <span>服务热线：888-888-8888</span>
       <span style="margin:0 12px;color:#dcdfe6">|</span>
       <span>服务时间：周一至周日 8:00-20:00</span>
     </div>
